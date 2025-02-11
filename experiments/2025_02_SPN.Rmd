@@ -1,0 +1,412 @@
+---
+title: "Solitary Pulmonary Nodule"
+subtitle: "ML & DMM"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%d de %B de %Y')`"
+codification: "UTF-8"
+output:
+  rmdformats::material:
+  highlight: kate # github
+params:
+  test: TRUE
+  ## TEST
+  echo: TRUE
+  test_prop: 0.25
+  grid_size: 1
+  bootstrap_size: 1
+  rank_metric: "f_meas"
+  ## FINAL
+  # echo: TRUE
+  # test_prop: 0.25
+  # grid_size: 10
+  # bootstrap_size: 10
+  # rank_metric: "f_meas"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  echo = params$echo
+)
+
+set.seed(1974)
+## CARGA DEL ENTORNO
+# load(here("data/db_SPN.RData"))
+
+## NOMBRADO
+# namer::unname_chunks(here("experiments/2025_02_SPN.Rmd"))
+# namer::name_chunks(here("experiments/2025_02_SPN.Rmd"))
+```
+
+```{r 2025-02-SPN-1, include=FALSE}
+library(here)
+source(here("experiments/SPN_code/libraries.R"))
+source(here("R/qmat.R"))
+```
+
+# Introducción
+
+Buscamos en este documento contrastar el método de la matriz cuántica de DMM con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos al conjunto de datos SPN (Nódulo Pulmonar Solitario).
+
+# Lectura de datos y aNÁlisis
+
+```{r 2025-02-SPN-2, warning=FALSE, message=FALSE}
+Data <- read_rds(here("data", "db_SPN.rds"))
+visdat::vis_miss(Data) # No hay valores perdidos
+```
+
+# Inspección
+
+```{r 2025-02-SPN-3 }
+visdat::vis_dat(Data) + labs(title = "Datos originales", subtitle = paste0(dim(Data), collapse = " x "))
+```
+
+## Factores
+
+Queremos ver cuántos niveles hay para cada variable factorial:
+
+```{r 2025-02-SPN-4 }
+source(here("R/plot_n_levels.R"))
+plot_n_levels(Data)
+```
+
+## `Testify`
+
+```{r 2025-02-SPN-5, echo = TRUE}
+Data %<>% 
+  rename(y = dxlungcancer) %>% # Objective variable
+  # mutate(y = as.factor(y)) %>% 
+  testify(objective_variable = "y", test_prob = params$test_prop) %>% 
+  relocate(y, test) %>% 
+  ungroup()
+
+Data %>% select(y,test) %>% table
+```
+
+# Workflow
+
+```{r 2025-02-SPN-6 }
+source(here("experiments/SPN_code/workflow.R"))
+```
+
+## Cocinado
+
+```{r 2025-02-SPN-7 }
+baked_Data <- rec1 %>% prep(Data) %>% bake(new_data = Data)
+baked_Data
+```
+
+## DMM
+
+```{r 2025-02-SPN-8 }
+baked_Data_trainf <- rec1f %>% prep(Data_train) %>% bake(new_data = Data_train)
+baked_Data_testf <- rec1f %>% prep(Data_test) %>% bake(new_data = Data_test)
+# Las rejuntamos indicando test o no
+
+baked_Dataf <- rec1f %>% prep(Data_train) %>% bake(new_data = Data_train) %>% mutate(test = FALSE) %>% 
+  bind_rows(Data_test %>% mutate(test = TRUE)) %>% relocate(y, test)
+
+baked_Dataf
+```
+
+### SMOTE
+
+```{r 2025-02-SPN-9 }
+baked_Data
+baked_Dataf
+```
+
+## Tuning & Results
+
+```{r 2025-02-SPN-10 }
+source(here("experiments/SPN_code/tuning/tuning.R"))
+aw_ranks
+aw_autoplot
+```
+
+#### Best model
+
+Repetimos ahora lo mismo pero considerando solo la mejor versión de cada uno de los modelos empleados, con el parámetro `select_best`:
+
+```{r 2025-02-SPN-11 }
+source(here("experiments/SPN_code/tuning/best.R"))
+aw_ranks
+aw_autoplot
+```
+
+#### Parámetros finales del fine tuning
+
+Tenemos que "finalizar" primero el ajuste de los modelos, para luego poder acceder a los parámetros finales empleados en cada uno de ellos.
+
+```{r 2025-02-SPN-12 }
+source(here("experiments/SPN_code/tuning/results.R"))
+tuning_results
+# source(here("R/tib2latex.R"))
+# tuning_results %>% tib2latex()
+```
+
+# DMM
+
+Para que sean comparables, tenemos que emplear la misma estrategia a la hora de obtener una estimación del error cometido. Anteriormente lo hicimos tal y como aparece en `workflow.R`.
+
+En todos los casos luego hemos usado Data_train para preparar la receta. Hecho esto hemos entrenado los modelos mediante una búsqueda en rejilla —cosa que en este caso no hace falta—, para luego estimar el error mediante `tune_grid()` y `train_resamples()`. Recordemos también que hemos definido `my_metrics()` para recuperar el error. Para seguir el mismo procedimiento con nuestra función predictiva `qmat()` tenemos que hacerlo más paso a paso, como sigue:
+
+1. Preparamos la receta con `Data_train` y la aplicamos a `Data_train` y `Data_test`.
+2. Entrenamos **MANUALMENTE** el modelo con `Data_train` y `train_resamples`.
+3. Aplicamos el modelo a `Data_test` y obtenemos las predicciones.
+4. Obtenemos con `my_metrics()` el error cometido.
+
+```{r 2025-02-SPN-13 }
+source(here("experiments/SPN_code/qmat/qmat.R"))
+```
+
+## Visualización
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r 2025-02-SPN-14 }
+source(here("experiments/SPN_code/qmat/plot_qmat.R"))
+qmat_plot
+```
+
+## Improved visualization
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r 2025-02-SPN-15 }
+class_example <- qmats[[1]] %>%
+  mutate(
+    .truth = ifelse(.truth == 2, "Diagnosed", "Not diagnosed"),
+    .pred = ifelse(.pred == 2, "Diagnosed", "Not diagnosed")
+  ) %>% 
+  ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "Classification Example",
+    # subtitle = .y,
+    x = "",
+    y = ""
+  ) +
+  coord_polar(theta = "y", start = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+
+ggsave(here::here("figs", "classification_example.png"), class_example, width = 6, height = 6)
+```
+
+## Visualización de las funciones de densidad
+
+Podemos representar las funciones de densidad de probabilidad para cada una de las clases, para cada uno de los grupos considerados:
+
+```{r 2025-02-SPN-16 }
+library(ks)
+```
+
+```{r 2025-02-SPN-17 }
+plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
+  # class_value = 0
+  data <- qmats %>% 
+  bind_rows() %>% 
+  filter(.truth == class_value) # Filter for the class
+
+  # KDE estimation
+  H <- Hpi(x = data[, c("r", "phi_1")]) # Bandwidth matrix estimation
+  fhat <- kde(x = data[, c("r", "phi_1")], H = H, gridsize = c(100, 100)) # KDE with ks
+  
+  # Convert the KDE output to a data frame
+  density_data <- expand.grid(
+    r = fhat$eval.points[[1]], 
+    phi_1 = fhat$eval.points[[2]]
+  ) %>%
+    mutate(density = as.vector(fhat$estimate))
+  
+  # Plot the KDE-based heatmap
+  kde_plot <- ggplot(density_data, aes(x = r, y = phi_1, fill = density)) +
+    geom_tile() +
+    labs(
+      title = new_title,
+      subtitle = "Kernel Density Estimate",
+      x = expression(r),
+      y = expression(phi[1])
+    ) +
+    scale_fill_viridis_c() + # Add a visually appealing color scale
+    theme_void() +
+    theme(legend.position = "none") # Remove the legend
+  
+  if (show_plot) {
+    print(kde_plot)
+  }
+  
+  if (!is.null(save_dir)) {
+    ggsave(filename = paste0(save_dir, "/kde_plot_", class_value, ".png"), plot = kde_plot)
+  }
+}
+
+plot_class(1, new_title = "(a) Not diagnosed", show_plot = FALSE, save_dir = here::here("figs"))
+plot_class(2, new_title = "(b) Diagnosed", show_plot = FALSE, save_dir = here::here("figs"))
+```
+
+## Visualización de la matriz de confusión promedia
+
+```{r 2025-02-SPN-18 }
+qmats %>% 
+  bind_rows() %>% 
+  # Now the confusion matrix
+  select(.truth, .pred) %>%
+  table() %>%
+  # As percentages over the truth
+  prop.table(1)
+```
+
+# Comparativa
+
+Hemos generado el objeto `qmat_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
+
+```{r 2025-02-SPN-19, echo=FALSE}
+source(here("experiments/SPN_code/comparison.R"))
+metrics_table
+
+# source(here("R/tib2latex.R"))
+# metrics_table %>% tib2latex()
+```
+
+# Notas finales
+
+- Tamaño de la cuadrícula: `r params$grid_size`
+- Métrica de ranking: `r params$rank_metric`
+- Número de muestras bootstrap: `r params$bootstrap_size`
+
+Teníamos las mediciones estratificadas:
+
+```{r 2025-02-SPN-20, echo=FALSE}
+Data %>% select(y, test) %>% table
+```
+
+# 🆕 Comparativa sobre el conjunto `test`
+
+Queremos ahora **evaluar sobre el conjunto `test`**. Para ello, finalizamos el ajuste con el workflow general ML y obtenemos las predicciones, y análogamente para el caso DMM.
+
+## ML
+
+```{r 2025-02-SPN-21}
+results = list()
+wks = list()
+fits = list()
+preds = Data_test %>% select(y)
+test_metrics = tibble()
+
+if (!"rec1_tree" %in% all_workflows$wflow_id) {
+  # Add rec1 to all workflows names
+  all_workflows %<>% mutate(wflow_id = paste0("rec1_", wflow_id))
+}
+
+for (model_name in model_names) {
+  # Recuperamos el modelo resultante para cada modelo del workflow,
+  # nos quedamos con el mejor y...
+  results[[model_name]] <- all_workflows %>%
+    extract_workflow_set_result(paste0("rec1_", model_name))
+  wks[[model_name]] <- all_workflows %>%
+    extract_workflow(paste0("rec1_", model_name))
+  
+  best_rank_metric <- select_best(results[[model_name]], metric = params$rank_metric)
+  
+  # finalizamos el ajuste
+  fits[[model_name]] <- wks[[model_name]] %>% 
+    finalize_workflow(best_rank_metric) %>%
+    # finalize_workflow(tibble(prod_degree = 1)) %>%
+    fit(data = Data_train)
+  
+  # Now the new predictions
+  preds %<>% bind_cols(
+    !!model_name := predict(fits[[model_name]], Data_test) %>% pull(1)
+  )
+  
+  # Now, for each combination, we obtain our metrics
+  test_metrics %<>% 
+    bind_rows(
+      my_metrics(preds, truth = y, estimate = !!model_name) %>%
+        mutate(wflow_id = model_name)
+    )
+}
+```
+
+### Renombrado
+
+```{r 2025-02-SPN-22}
+test_metrics %<>%
+  # We want to change like follows:
+  # RF <- rf
+  # Logistic Regression <- logistic
+  # SVM-P <- svm_p
+  # SVM-R <- svm_r
+  # CART <- cart
+  # XGB <- xgb
+  # Tree <- tree
+  # NN <- nn
+  # Bag CART <- bag_cart
+  # KNN <- knn
+  mutate(wflow_id = case_when(
+     wflow_id == "rf" ~ "RF",
+     wflow_id == "logistic" ~ "Logistic Regression",
+     wflow_id == "svm_p" ~ "SVM-P",
+     wflow_id == "svm_r" ~ "SVM-R",
+     wflow_id == "cart" ~ "CART",
+     wflow_id == "xgb" ~ "XGB",
+     wflow_id == "tree" ~ "Tree",
+     wflow_id == "nn" ~ "NN",
+     wflow_id == "bag_cart" ~ "Bag CART",
+     wflow_id == "knn" ~ "KNN",
+     TRUE ~ wflow_id
+    )
+   ) %>% 
+  relocate(wflow_id)
+```
+
+## DMM
+
+Queremos ajustar aquí la DMM sobre todo el conjunto y luego aplicarla únicamente al conjunto test, para obtener las mismas métricas. Necesitaremos los archivos `qmat.R` para esto.
+
+```{r 2025-02-SPN-23}
+qmat_metrics_test <- qmat(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test") %>%   
+  my_metrics(
+    mutate(.pred = factor(.pred, levels = levels(.truth))),
+    truth = .truth, estimate = .pred
+  )
+
+metrics_qmat <- qmat_metrics_test %>%
+  select(.metric, .estimate) %>%
+  mutate(wflow_id = "DMM")
+
+test_metrics <- test_metrics %>%
+  bind_rows(metrics_qmat)
+```
+
+## Tabla final
+
+```{r 2025-02-SPN-24}
+test_metrics_table <- test_metrics %>%
+  mutate(.estimate = round(.estimate, 3)) %>% 
+  select(-.estimator) %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate) %>%
+  relocate(wflow_id, f_meas, accuracy, specificity, sensitivity, kap) %>%
+  arrange(-f_meas)
+
+test_metrics_table %>% knitr::kable()
+# source(here("R/tib2latex.R"))
+# test_metrics_table %>% tib2latex()
+```
+
+# Guardado del entorno
+
+```{r 2025-02-SPN-25 }
+if (params$test) {
+  save.image(here("data/SPN_env_test.RData"))
+} else {
+  save.image(here("data/SPN_env.RData"))
+}
+# load(here("data/env_10_03.RData")) # Para cargarlo:
+```
+
