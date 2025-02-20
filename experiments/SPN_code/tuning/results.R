@@ -12,15 +12,19 @@ for (model in 1:length(tuning_results)) {
   NA_metric = tuning_results[[model]]$.metrics[[1]] %>%
     filter(.metric == params$rank_metric) %$%
     .estimate %>%
-    is.na()
+    is.na() %>%
+    all()
 
   if (NA_metric) {
     drop_me %<>% c(model)
   }
 }
-tuning_results[[drop_me]] <- NULL
-wflow_ids = wflow_ids[-drop_me]
-model_names = wflow_ids
+
+if (!is.null(drop_me)) {
+  tuning_results[[drop_me]] <- NULL
+  wflow_ids = wflow_ids[-drop_me]
+  model_names = wflow_ids
+}
 
 tuning_results %<>%
   map(~ select_best(.x, metric = params$rank_metric)) %>%
