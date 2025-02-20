@@ -8,19 +8,22 @@ output:
   rmdformats::material:
   highlight: kate # github
 params:
-  test: TRUE
-  ## TEST
   echo: TRUE
   test_prop: 0.25
-  grid_size: 1
-  bootstrap_size: 1
   rank_metric: "f_meas"
+  ## TEST-FAST
+  # (beware of SVM + XGB)
+  # test: TRUE
+  # grid_size: 1
+  # bootstrap_size: 1
+  ## TEST
+  test: TRUE
+  grid_size: 3
+  bootstrap_size: 3
   ## FINAL
-  # echo: TRUE
-  # test_prop: 0.25
+  # test: FALSE
   # grid_size: 10
   # bootstrap_size: 10
-  # rank_metric: "f_meas"
 ---
 
 ```{r setup, include=FALSE}
@@ -43,12 +46,12 @@ set.seed(1974)
 ```{r 2025-02-SPN-1, include=FALSE}
 library(here)
 source(here("experiments/SPN_code/libraries.R"))
-source(here("R/qmat.R"))
+source(here("R/dmm.R"))
 ```
 
 # Introducción
 
-Buscamos en este documento contrastar el método de la matriz cuántica de DMM con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos al conjunto de datos SPN (Nódulo Pulmonar Solitario).
+Buscamos en este documento contrastar el método de la matriz cuántica de dmm con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos al conjunto de datos SPN (Nódulo Pulmonar Solitario).
 
 # Lectura de datos y aNÁlisis
 
@@ -85,10 +88,20 @@ Data %<>%
 Data %>% select(y,test) %>% table
 ```
 
+# 🆕 Corrección del orden de los factores
+
+Originalmente la variable `y` tiene los niveles "0" y "1". Vamos a cambiar el orden para que "1" sea el nivel positivo, de forma tal que no tengamos que recodificar todo el modelo.
+
+```{r}
+Data %<>% 
+  mutate(y = forcats::fct_relevel(y, "1", "0"))
+```
+
 # Workflow
 
 ```{r 2025-02-SPN-6 }
 source(here("experiments/SPN_code/workflow.R"))
+source(here("experiments/SPN_code/workflowset.R"))
 ```
 
 ## Cocinado
@@ -98,7 +111,7 @@ baked_Data <- rec1 %>% prep(Data) %>% bake(new_data = Data)
 baked_Data
 ```
 
-## DMM
+## dmm
 
 ```{r 2025-02-SPN-8 }
 baked_Data_trainf <- rec1f %>% prep(Data_train) %>% bake(new_data = Data_train)
@@ -122,7 +135,9 @@ baked_Dataf
 
 ```{r 2025-02-SPN-10 }
 source(here("experiments/SPN_code/tuning/tuning.R"))
-aw_ranks
+aw_ranks %>% 
+  filter(.metric == "f_meas") %>% 
+  select(wflow_id, mean)
 aw_autoplot
 ```
 
@@ -132,7 +147,8 @@ Repetimos ahora lo mismo pero considerando solo la mejor versión de cada uno de
 
 ```{r 2025-02-SPN-11 }
 source(here("experiments/SPN_code/tuning/best.R"))
-aw_ranks
+aw_ranks %>% 
+  select(wflow_id, mean)
 aw_autoplot
 ```
 
@@ -147,11 +163,11 @@ tuning_results
 # tuning_results %>% tib2latex()
 ```
 
-# DMM
+# dmm
 
 Para que sean comparables, tenemos que emplear la misma estrategia a la hora de obtener una estimación del error cometido. Anteriormente lo hicimos tal y como aparece en `workflow.R`.
 
-En todos los casos luego hemos usado Data_train para preparar la receta. Hecho esto hemos entrenado los modelos mediante una búsqueda en rejilla —cosa que en este caso no hace falta—, para luego estimar el error mediante `tune_grid()` y `train_resamples()`. Recordemos también que hemos definido `my_metrics()` para recuperar el error. Para seguir el mismo procedimiento con nuestra función predictiva `qmat()` tenemos que hacerlo más paso a paso, como sigue:
+En todos los casos luego hemos usado Data_train para preparar la receta. Hecho esto hemos entrenado los modelos mediante una búsqueda en rejilla —cosa que en este caso no hace falta—, para luego estimar el error mediante `tune_grid()` y `train_resamples()`. Recordemos también que hemos definido `my_metrics()` para recuperar el error. Para seguir el mismo procedimiento con nuestra función predictiva `dmm()` tenemos que hacerlo más paso a paso, como sigue:
 
 1. Preparamos la receta con `Data_train` y la aplicamos a `Data_train` y `Data_test`.
 2. Entrenamos **MANUALMENTE** el modelo con `Data_train` y `train_resamples`.
@@ -159,7 +175,7 @@ En todos los casos luego hemos usado Data_train para preparar la receta. Hecho e
 4. Obtenemos con `my_metrics()` el error cometido.
 
 ```{r 2025-02-SPN-13 }
-source(here("experiments/SPN_code/qmat/qmat.R"))
+source(here("experiments/SPN_code/dmm/dmm.R"))
 ```
 
 ## Visualización
@@ -167,8 +183,8 @@ source(here("experiments/SPN_code/qmat/qmat.R"))
 Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
 
 ```{r 2025-02-SPN-14 }
-source(here("experiments/SPN_code/qmat/plot_qmat.R"))
-qmat_plot
+source(here("experiments/SPN_code/dmm/plot_dmm.R"))
+dmm_plot
 ```
 
 ## Improved visualization
@@ -176,7 +192,7 @@ qmat_plot
 Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
 
 ```{r 2025-02-SPN-15 }
-class_example <- qmats[[1]] %>%
+class_example <- dmms[[1]] %>%
   mutate(
     .truth = ifelse(.truth == 2, "Diagnosed", "Not diagnosed"),
     .pred = ifelse(.pred == 2, "Diagnosed", "Not diagnosed")
@@ -208,7 +224,7 @@ library(ks)
 ```{r 2025-02-SPN-17 }
 plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
   # class_value = 0
-  data <- qmats %>% 
+  data <- dmms %>% 
   bind_rows() %>% 
   filter(.truth == class_value) # Filter for the class
 
@@ -252,7 +268,7 @@ plot_class(2, new_title = "(b) Diagnosed", show_plot = FALSE, save_dir = here::h
 ## Visualización de la matriz de confusión promedia
 
 ```{r 2025-02-SPN-18 }
-qmats %>% 
+dmms %>% 
   bind_rows() %>% 
   # Now the confusion matrix
   select(.truth, .pred) %>%
@@ -263,7 +279,7 @@ qmats %>%
 
 # Comparativa
 
-Hemos generado el objeto `qmat_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
+Hemos generado el objeto `dmm_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
 
 ```{r 2025-02-SPN-19, echo=FALSE}
 source(here("experiments/SPN_code/comparison.R"))
@@ -287,7 +303,7 @@ Data %>% select(y, test) %>% table
 
 # 🆕 Comparativa sobre el conjunto `test`
 
-Queremos ahora **evaluar sobre el conjunto `test`**. Para ello, finalizamos el ajuste con el workflow general ML y obtenemos las predicciones, y análogamente para el caso DMM.
+Queremos ahora **evaluar sobre el conjunto `test`**. Para ello, finalizamos el ajuste con el workflow general ML y obtenemos las predicciones, y análogamente para el caso dmm.
 
 ## ML
 
@@ -365,23 +381,23 @@ test_metrics %<>%
   relocate(wflow_id)
 ```
 
-## DMM
+## dmm
 
-Queremos ajustar aquí la DMM sobre todo el conjunto y luego aplicarla únicamente al conjunto test, para obtener las mismas métricas. Necesitaremos los archivos `qmat.R` para esto.
+Queremos ajustar aquí la dmm sobre todo el conjunto y luego aplicarla únicamente al conjunto test, para obtener las mismas métricas. Necesitaremos los archivos `dmm.R` para esto.
 
 ```{r 2025-02-SPN-23}
-qmat_metrics_test <- qmat(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test") %>%   
+dmm_metrics_test <- dmm(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test") %>%   
   my_metrics(
     mutate(.pred = factor(.pred, levels = levels(.truth))),
     truth = .truth, estimate = .pred
   )
 
-metrics_qmat <- qmat_metrics_test %>%
+metrics_dmm <- dmm_metrics_test %>%
   select(.metric, .estimate) %>%
-  mutate(wflow_id = "DMM")
+  mutate(wflow_id = "dmm")
 
 test_metrics <- test_metrics %>%
-  bind_rows(metrics_qmat)
+  bind_rows(metrics_dmm)
 ```
 
 ## Tabla final
