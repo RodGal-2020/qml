@@ -3,7 +3,26 @@ cat("The previous code returns the tuning_results object after selecting the bes
 wflow_ids = all_workflows %>% pull(wflow_id)
 
 tuning_results <- wflow_ids %>%
-  map(~ extract_workflow_set_result(all_workflows, id = .x)) %>%
+  map(~ extract_workflow_set_result(all_workflows, id = .x))
+
+# We filter those that actually obtained results, something important when working
+# with the test version of the file
+drop_me = c()
+for (model in 1:length(tuning_results)) {
+  NA_metric = tuning_results[[model]]$.metrics[[1]] %>%
+    filter(.metric == params$rank_metric) %$%
+    .estimate %>%
+    is.na()
+
+  if (NA_metric) {
+    drop_me %<>% c(model)
+  }
+}
+tuning_results[[drop_me]] <- NULL
+wflow_ids = wflow_ids[-drop_me]
+model_names = wflow_ids
+
+tuning_results %<>%
   map(~ select_best(.x, metric = params$rank_metric)) %>%
   set_names(wflow_ids) %>%
   imap(
