@@ -1,4 +1,4 @@
-qmat_plot <- qmats[[1]] %>%
+dmm_plot <- dmms[[1]] %>%
   ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
   geom_point(size = 3, alpha = 0.8) +
   labs(

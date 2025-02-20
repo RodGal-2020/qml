@@ -1,13 +1,13 @@
-metrics_qmat <- qmat_metrics %>%
+metrics_dmm <- dmm_metrics %>%
   select(.metric, .estimate) %>%
-  mutate(wflow_id = "qmat", rank = 0)
+  mutate(wflow_id = "dmm", rank = 0)
 
 metrics_others <- all_workflows %>%
   rank_results(rank_metric = params$rank_metric, select_best = TRUE) %>% # Ordenados según accuracy
   select(.metric, mean, wflow_id, rank) %>%
   rename(.estimate = mean)
 
-metrics_full <- bind_rows(metrics_qmat, metrics_others) %>% arrange(rank) %>%
+metrics_full <- bind_rows(metrics_dmm, metrics_others) %>% arrange(rank) %>%
   mutate(.estimate = round(.estimate, 3))
 
 metrics_table <- metrics_full %>%

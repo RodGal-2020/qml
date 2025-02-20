@@ -347,7 +347,7 @@ get_C_tilde_polar = function(Data, objective_var = NULL, n_breaks = 3, verbose =
   }
 }
 
-qmat = function(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test", debug = FALSE) {
+dmm = function(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test", debug = FALSE) {
   # Data = Data_list[[1]]; n_breaks = 3; objective_var = "y"; verbose = 3; test_var = "test"
   C_tilde_polar <- get_C_tilde_polar(Data, objective_var = objective_var, n_breaks = n_breaks, verbose = verbose, test_var = "test")
 
