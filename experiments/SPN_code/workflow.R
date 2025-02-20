@@ -2,9 +2,7 @@
 source(here("experiments/SPN_code/models.R"))
 
 #📊 Metrics---------------------------------------------------------------------
-# Usaremos las mismas métricas que en el artículo original de Falcó.
-my_metrics = metric_set(sensitivity, specificity, ppv, npv, accuracy, f_meas, kap, mcc)
-# > **🧠 ROC AUC** no es una métrica que se pueda emplear, dado que no estamos considerando las probabilidades como posibles salidas de los modelos contemplados
+source(here("experiments/SPN_code/metrics.R"))
 
 #🧪 Train/Test------------------------------------------------------------------
 Data_train <- Data %>% filter(test == 0) %>% select(-test)
@@ -28,9 +26,4 @@ rec1f <- recipe(y ~ ., data = Data_train) %>%
   step_zv(all_predictors()) %>%
   step_nzv(all_predictors())
 
-#🔧 workflowset-----------------------------------------------------------------
-all_workflows <- workflow_set(
-  preproc = list("rec1" = rec1),
-  models = model_list) %>%
-  option_add(id = NULL, # Todos
-             control = control_grid(extract = function(x) x))
+
