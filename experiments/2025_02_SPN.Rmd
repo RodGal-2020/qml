@@ -17,13 +17,13 @@ params:
   # grid_size: 1
   # bootstrap_size: 1
   ## TEST
-  test: TRUE
-  grid_size: 3
-  bootstrap_size: 3
+  # test: TRUE
+  # grid_size: 3
+  # bootstrap_size: 3
   ## FINAL
-  # test: FALSE
-  # grid_size: 10
-  # bootstrap_size: 10
+  test: FALSE
+  grid_size: 10
+  bootstrap_size: 10
 ---
 
 ```{r setup, include=FALSE}
@@ -36,7 +36,7 @@ knitr::opts_chunk$set(
 
 set.seed(1974)
 ## CARGA DEL ENTORNO
-# load(here("data/db_SPN.RData"))
+# load(here::here("data/SPN_env.RData"))
 
 ## NOMBRADO
 # namer::unname_chunks(here("experiments/2025_02_SPN.Rmd"))
@@ -159,7 +159,7 @@ Tenemos que "finalizar" primero el ajuste de los modelos, para luego poder acced
 ```{r 2025-02-SPN-12 }
 source(here("experiments/SPN_code/tuning/results.R"))
 tuning_results
-# source(here("R/tib2latex.R"))
+# source(here::here("R/tib2latex.R"))
 # tuning_results %>% tib2latex()
 ```
 
@@ -285,7 +285,7 @@ Hemos generado el objeto `dmm_metrics`, que contiene las métricas de error para
 source(here("experiments/SPN_code/comparison.R"))
 metrics_table
 
-# source(here("R/tib2latex.R"))
+# source(here::here("R/tib2latex.R"))
 # metrics_table %>% tib2latex()
 ```
 
@@ -411,7 +411,7 @@ test_metrics_table <- test_metrics %>%
   arrange(-f_meas)
 
 test_metrics_table %>% knitr::kable()
-# source(here("R/tib2latex.R"))
+# source(here::here("R/tib2latex.R"))
 # test_metrics_table %>% tib2latex()
 ```
 
@@ -423,6 +423,5 @@ if (params$test) {
 } else {
   save.image(here("data/SPN_env.RData"))
 }
-# load(here("data/env_10_03.RData")) # Para cargarlo:
 ```
 
