@@ -265,6 +265,27 @@ plot_class(1, new_title = "(a) Not diagnosed", show_plot = FALSE, save_dir = her
 plot_class(2, new_title = "(b) Diagnosed", show_plot = FALSE, save_dir = here::here("figs"))
 ```
 
+## Visualización de una matriz de confusión
+
+```{r}
+dmms %>% 
+  extract2(1) %>% 
+  select(.truth, .pred) %>%
+  table()
+```
+
+Remember that these are the results for one bootstrap resample leaving 25% out. Initially, we only had 315 undiagnosed and 22 diagnosed and, in particular, for this particular resample in the test:
+
+```{r}
+train_resamples %$% 
+  splits %>% 
+  extract2(1) %>% 
+  rsample::assessment() %>% # Test
+  #   rsample::analysis() %>% # Train
+  select(y) %>% 
+  table()
+```
+
 ## Visualización de la matriz de confusión promedia
 
 ```{r 2025-02-SPN-18 }

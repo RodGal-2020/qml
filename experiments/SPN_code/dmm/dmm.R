@@ -17,6 +17,19 @@ aplicar_dmm <- function(resample) {
 # train_resamples$splits[[1]] %>% aplicar_dmm()
 dmms <- map(train_resamples$splits, aplicar_dmm)
 
+# Fix codification of the levels of the factor variables
+# Example of the error:
+#
+# rsample::assessment(train_resamples$splits[[1]])$y %>% table()
+# dmms[[1]]$.truth %>% table()
+# dmms[[1]]$.truth %>% head()
+#
+# When launching dmm 1s turned to 1s and 0s to 2s. We fix that using the forcats package:
+dmms %<>% map(
+  ~ .x %>%
+    mutate(across(c(.pred, .truth), ~ forcats::fct_recode(.x, "0" = "2")))
+)
+
 dmm_metrics <- dmms %>% map(
   ~ .x %>% my_metrics(
     # Que tengan los mismos niveles como factores, asumiendo que en .truth están
