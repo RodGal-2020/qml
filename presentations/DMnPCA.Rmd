@@ -1,0 +1,657 @@
+---
+title: "DM and the PCA"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+codification: "UTF-8"
+output: 
+  ioslides_presentation:
+    widescreen: true # Wider form factor
+    # smaller: true # Text
+    transition: slower # default
+    css: ../config/style/matteocourthoud_custom_ioslides.css
+    logo: ../config/style/logo.svg
+params:
+  test_prop: 0.25
+  rank_metric: "bal_accuracy"
+  ## TEST-FAST
+  # (beware of SVM + XGB)
+  test: TRUE
+  grid_size: 1
+  bootstrap_size: 1
+  ## TEST
+  # test: TRUE
+  # grid_size: 3
+  # bootstrap_size: 3
+  ## FINAL
+  # test: FALSE
+  # grid_size: 10
+  # bootstrap_size: 10
+---
+
+```{r setup, include=FALSE}
+source(here::here("config/setup.R"))
+library(tidyverse)
+source(here("R/dm.R")) # 6 key functions for the DM model
+
+## Auxiliary functions
+# load(here::here("data/DM_presentation_env.RData")) # Loading the environment
+# namer::unname_chunks(here("experiments/DM_presentation.Rmd")) # Renaming
+# namer::name_chunks(here("experiments/DM_presentation.Rmd"))
+```
+
+# 🛑 STOP
+
+```{r DM-presentation-34}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+# Introduction
+
+## Introduction
+
+In the following presentation our idea is to share the way the Density Matrix (DM) model works, using it for a real case study.
+
+## Case study - Palmer Penguins
+
+We will be working with the Palmer `penguins` dataset, which is a well-known dataset in the R community for classification tasks. The goal is to classify penguin species based on various features. The `penguins` dataset is as follows:
+
+```{r DM-presentation-1, echo=FALSE}
+Data <- modeldata::penguins
+Data %>% glimpse()
+```
+
+## Case study - Palmer Penguins
+
+Our objective, therefore, is to identify the species using all the other variables as predictors. The species are Adelie, Chinstrap, and Gentoo.
+
+<img src="https://allisonhorst.github.io/palmerpenguins/reference/figures/lter_penguins.png" width="600px"/>
+
+# Data preparation
+
+## Data preparation - Species selection
+
+However, due to the limitations of our model so far, we will be working with only 2 of those species: Adelie and Gentoo, the ones whose difference in `Body mass` and `Flipper length` can allow us to separate them more easily.
+
+```{r DM-presentation-2}
+Data %<>% 
+  filter(species != "Chinstrap") %>%
+  mutate(y = ifelse(species == "Adelie", "0", "1"), .keep = "unused") %>%
+  mutate(y = factor(y)) %>% 
+  relocate(y)
+```
+
+## Data preparation - aNAlysis
+
+We will just drop the `NA` values.
+
+```{r DM-presentation-3}
+Data %<>% na.omit()
+```
+
+## Data preparation - Number of Categories
+
+```{r DM-presentation-4, echo = FALSE}
+source(here("R/plot_n_levels.R"))
+plot_n_levels(Data)
+```
+
+# Data preparation - Factor order fix
+
+Initially, the `y` variable has levels "0" and "1". We will change the order so that "1" is the positive level, so we don't have to recode the whole model.
+
+```{r DM-presentation-5}
+Data %<>% mutate(y = forcats::fct_relevel(y, "1", "0"))
+```
+
+## Data preparation - split
+
+For the sake of comparison, we will split the data into a training set and a test set, using a proportion defined in the parameters section. We will stratify the split based on the `species` variable to ensure that both species are represented proportionally in both sets.
+
+```{r DM-presentation-6}
+Data_split <- Data %>% rsample::initial_split(prop = 1 - params$test_prop, strata = "y")
+Data_train <- Data_split %>% rsample::training()
+Data_test <- Data_split %>% rsample::testing()
+train_resamples <- bootstraps(Data_train, times = params$bootstrap_size)
+```
+
+# Workflow
+
+## Workflow
+
+## 🤖 Models
+
+```{r DM-presentation-7, message=FALSE, warning=FALSE}
+source("https://raw.githubusercontent.com/RodGal-2020/ML_common/refs/heads/main/models/classification.R")
+# Models is a named list, and we just want to keep those that we can actually use
+models %<>% magrittr::extract(c("rf", "knn"))
+require(ranger) # For rf
+```
+
+## 📊 Metrics
+
+```{r DM-presentation-8}
+my_metrics = metric_set(bal_accuracy, sensitivity, specificity, ppv, npv, accuracy, f_meas, kap, mcc)
+```
+
+## 🍳 Recipes (1/2)
+
+We just want an easy and scalable example, so we will define a simple recipe that only removes zero-variance and near-zero variance predictors. We will not apply any other transformation, as we want to see how the models behave with the raw data.
+
+```{r DM-presentation-9}
+rec_basic <- recipe(y ~ ., data = Data_train) %>%
+  # step_novel(all_predictors()) %>% # Valores nuevos, aunque no se den
+  # step_other(all_predictors(), threshold = 0.01, other = "other") %>% # Categorías infrecuentes
+  # step_novel(all_predictors()) %>%
+  # step_dummy(all_nominal(), -y) %>%
+  # themis::step_smote(y, over_ratio = 0.5) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors()) # Near zero
+```
+
+## 🍳 Recipes (2/2)
+
+Knowing that we will be working with categorical variables, we define a very simple recipe that we will later apply to generate a dataset suitable for the DM.
+
+```{r DM-presentation-10}
+rec_dm <- recipe(y ~ ., data = Data_train) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors())
+```
+
+## Data baking - Common
+
+```{r DM-presentation-12, echo=FALSE}
+(Data_baked <- rec_basic %>% prep(Data) %>% bake(new_data = Data))
+```
+
+## Data baking - DM
+
+For comparison, we will also bake the data using the DM recipe, both for training and test sets.
+
+```{r DM-presentation-13, echo=FALSE}
+(Data_baked_dm <- rec_dm %>% prep(Data_train) %>% bake(new_data = Data_train) %>% mutate(test = FALSE) %>% 
+  bind_rows(Data_test %>% mutate(test = TRUE)) %>% relocate(y, test))
+```
+
+```{r DM-presentation-13, echo=FALSE}
+Data_baked_train_dm <- rec_dm %>% prep(Data_train) %>% bake(new_data = Data_train)
+Data_baked_test_dm <- rec_dm %>% prep(Data_test) %>% bake(new_data = Data_test)
+```
+
+## Data baking - DM - SMOTE effect
+
+Here we would see the effect of SMOTE if we had applied it in the recipe. We can see how the classes are balanced in the training set.
+
+```{r DM-presentation-14 }
+dim(Data_baked) / dim(Data_baked_dm)
+```
+
+# Tuning
+
+## 🔧 workflowset
+
+```{r DM-presentation-11}
+all_workflows <- workflow_set(
+  preproc = list("rec_basic" = rec_basic),
+  models = models) %>%
+  option_add(grid = params$grid_size, strict = FALSE)
+```
+
+## Tuning
+
+```{r DM-presentation-11}
+all_workflows %<>% workflow_map(
+  resamples = train_resamples,
+  metrics = my_metrics,
+  verbose = TRUE
+) %>%
+  mutate(wflow_id = sub("rec_basic_", "", wflow_id)) # Eliminamos "formula_" en cada identificador
+```
+
+## Tuning & Results
+
+```{r DM-presentation-15}
+aw_ranks <- all_workflows %>% rank_results(rank_metric = params$rank_metric)
+```
+
+## Tuning & Results
+
+```{r DM-presentation-16, echo=FALSE}
+aw_autoplot <- all_workflows %>% autoplot(metric = params$rank_metric)  +
+  # Handy plot
+  geom_text(aes(y = mean - 0.04, label = wflow_id), angle = 90, hjust = 1) +
+  theme(legend.position = "none")
+aw_autoplot
+```
+
+## Tuning & Results
+
+```{r DM-presentation-17 }
+aw_ranks %>% 
+  filter(.metric == params$rank_metric) %>% 
+  select(wflow_id, mean)
+```
+
+## Best model
+
+Repetimos ahora lo mismo pero considerando solo la mejor versión de cada uno de los modelos empleados, con el parámetro `select_best`:
+
+```{r DM-presentation-18, echo=FALSE}
+aw_ranks <- all_workflows %>%
+  workflowsets::rank_results(rank_metric = params$rank_metric, select_best = TRUE) %>%
+  filter(.metric == params$rank_metric)
+aw_ranks %>% select(wflow_id, mean)
+```
+
+## Best model
+
+```{r DM-presentation-18, echo=FALSE}
+(aw_autoplot <- all_workflows %>%
+  autoplot(metric = params$rank_metric, select_best = TRUE) +
+  geom_text(aes(y = mean - 0.04, label = wflow_id), angle = 90, hjust = 1) +
+  theme(legend.position = "none"))
+```
+
+## Best model - Final parameters
+
+We must "finalize" the model tuning first, to then be able to access the final parameters used in each of them.
+
+```{r DM-presentation-20, echo = FALSE}
+wflow_ids = all_workflows %>% pull(wflow_id)
+
+tuning_results <- wflow_ids %>%
+  map(~ extract_workflow_set_result(all_workflows, id = .x))
+
+# We filter those that actually obtained results, something important when working
+# with the test version of the file
+drop_me = c()
+for (model in 1:length(tuning_results)) {
+  NA_metric = tuning_results[[model]]$.metrics[[1]] %>%
+    filter(.metric == params$rank_metric) %$%
+    .estimate %>%
+    is.na() %>%
+    all()
+
+  if (NA_metric) {
+    drop_me %<>% c(model)
+  }
+}
+
+if (!is.null(drop_me)) {
+  tuning_results[[drop_me]] <- NULL
+  wflow_ids = wflow_ids[-drop_me]
+  model_names = wflow_ids
+}
+
+tuning_results %<>%
+  map(~ select_best(.x, metric = params$rank_metric)) %>%
+  set_names(wflow_ids) %>%
+  imap(
+    ~ .x %>% mutate(wflow_id = .y)
+  ) %>%
+  bind_rows() %>%
+  select(-.config) %>%
+  rename(model = wflow_id) %>%
+  relocate(model) %>%
+  mutate(across(everything(), as.character)) %>%
+  # Everything which is not "model" now is a parameter
+  pivot_longer(cols = -model, names_to = "param", values_to = "value") %>%
+  arrange(model) %>%
+  filter(!is.na(value)) %>%
+  mutate(value = round(as.numeric(value), 3) %>% as.character)
+
+```
+
+```{r DM-presentation-21 }
+tuning_results
+# source(here::here("R/tib2latex.R"))
+# tuning_results %>% tib2latex()
+```
+
+# DM
+
+## DM - Comparable Error Estimation
+
+To ensure fair comparison, we use the same workflow as in the previous workflow:
+
+1. Prepare the recipe with `Data_train` and apply it to both training and test sets.  
+2. **Train manually** on `Data_train` using `train_resamples()`.  
+3. Predict on `Data_test`.  
+4. Compute error with `my_metrics()`.
+
+This keeps the `dm()` evaluation consistent with all other models.
+
+```{r DM-presentation-22 }
+# Función para aplicar el modelo dm a cada muestra de bootstrap
+aplicar_dm <- function(resample) {
+  # resample$splits es el objeto que contiene las particiones de datos
+  # resample = train_resamples$splits[[1]]
+
+  data_resample_train <- rsample::analysis(resample) %>%   # extrae los datos de entrenamiento de la muestra bootstrap
+    mutate(test = FALSE)
+  data_resample_test <- rsample::assessment(resample) %>%
+    mutate(test = TRUE)
+
+  data_resample <- bind_rows(data_resample_train, data_resample_test)  # une los datos de entrenamiento y test
+
+  modelo <- dm(data_resample, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test")  # aplica tu modelo
+  return(modelo)  # devuelve el modelo o resultados (predicciones, métricas, etc.)
+}
+
+# train_resamples$splits[[1]] %>% aplicar_dm()
+dms <- map(train_resamples$splits, aplicar_dm)
+
+# Fix codification of the levels of the factor variables
+# Example of the error:
+#
+# rsample::assessment(train_resamples$splits[[1]])$y %>% table()
+# dms[[1]]$.truth %>% table()
+# dms[[1]]$.truth %>% head()
+#
+# When launching dm 1s turned to 1s and 0s to 2s. We fix that using the forcats package:
+dms %<>% map(
+  ~ .x %>%
+    mutate(across(c(.pred, .truth), ~ forcats::fct_recode(.x, "0" = "2")))
+)
+
+dm_metrics <- dms %>% map(
+  ~ .x %>% my_metrics(
+    # Que tengan los mismos niveles como factores, asumiendo que en .truth están
+    mutate(.pred = factor(.pred, levels = levels(.truth))),
+    truth = .truth, estimate = .pred
+  )
+)
+
+# Ahora combinamos los resultados anteriores, promediando para cada métrica
+dm_metrics <- dm_metrics %>%
+  bind_rows() %>%
+  group_by(.metric) %>%
+  summarise(.estimate = mean(.estimate))
+
+```
+
+## Visualización
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r DM-presentation-23, echo=FALSE}
+dm_plot <- dms[[1]] %>%
+  ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "Classification Example",
+    # subtitle = .y,
+    x = "",
+    y = ""
+  ) +
+  coord_polar(theta = "y", start = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+
+dm_plot
+```
+
+## Improved visualization
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r DM-presentation-24, echo=FALSE}
+class_example <- dms[[1]] %>%
+  mutate(
+    .truth = ifelse(.truth == 2, "Diagnosed", "Not diagnosed"),
+    .pred = ifelse(.pred == 2, "Diagnosed", "Not diagnosed")
+  ) %>% 
+  ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "Classification Example",
+    # subtitle = .y,
+    x = "",
+    y = ""
+  ) +
+  coord_polar(theta = "y", start = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+
+class_example
+```
+
+## Density functions visualization
+
+Podemos representar las funciones de densidad de probabilidad para cada una de las clases, para cada uno de los grupos considerados:
+
+```{r DM-presentation-25, echo=FALSE}
+library(ks)
+```
+
+```{r DM-presentation-26, echo=FALSE}
+plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
+  # class_value = 0
+  data <- dms %>% 
+  bind_rows() %>% 
+  filter(.truth == class_value) # Filter for the class
+
+  # KDE estimation
+  H <- Hpi(x = data[, c("r", "phi_1")]) # Bandwidth matrix estimation
+  fhat <- kde(x = data[, c("r", "phi_1")], H = H, gridsize = c(100, 100)) # KDE with ks
+  
+  # Convert the KDE output to a data frame
+  density_data <- expand.grid(
+    r = fhat$eval.points[[1]], 
+    phi_1 = fhat$eval.points[[2]]
+  ) %>%
+    mutate(density = as.vector(fhat$estimate))
+  
+  # Plot the KDE-based heatmap
+  kde_plot <- ggplot(density_data, aes(x = r, y = phi_1, fill = density)) +
+    geom_tile() +
+    labs(
+      title = new_title,
+      subtitle = "Kernel Density Estimate",
+      x = expression(r),
+      y = expression(phi[1])
+    ) +
+    scale_fill_viridis_c() + # Add a visually appealing color scale
+    theme_void() +
+    theme(legend.position = "none") # Remove the legend
+  
+  if (show_plot) {
+    print(kde_plot)
+  }
+  
+  if (!is.null(save_dir)) {
+    ggsave(filename = paste0(save_dir, "/kde_plot_", class_value, ".png"), plot = kde_plot)
+  }
+}
+```
+
+```{r DM-presentation-27 }
+plot_class(1, new_title = "(a) Not diagnosed", show_plot = FALSE, save_dir = here::here("figs"))
+```
+
+```{r DM-presentation-28 }
+plot_class(2, new_title = "(b) Diagnosed", show_plot = FALSE, save_dir = here::here("figs"))
+```
+
+## Confusion matrix - Mean values
+
+```{r DM-presentation-29 }
+dms %>% 
+  bind_rows() %>% 
+  # Now the confusion matrix
+  select(.truth, .pred) %>%
+  table() %>%
+  # As percentages over the truth
+  prop.table(1)
+```
+
+## Confusion matrix - One resample
+
+```{r DM-presentation-30}
+dms %>% 
+  extract2(1) %>% 
+  select(.truth, .pred) %>%
+  table()
+```
+
+## Confusion matrix - One resample - Train vs Test
+
+```{r DM-presentation-31}
+train_resamples %$% 
+  splits %>% 
+  extract2(1) %>% 
+  rsample::assessment() %>% # Test
+  #   rsample::analysis() %>% # Train
+  select(y) %>% 
+  table()
+```
+
+# Comparison
+
+Everything is in `dm_metrics`.
+
+```{r DM-presentation-32, echo=FALSE}
+metrics_dmm <- dmm_metrics %>%
+  select(.metric, .estimate) %>%
+  mutate(wflow_id = "dmm", rank = 0)
+
+metrics_others <- all_workflows %>%
+  rank_results(rank_metric = params$rank_metric, select_best = TRUE) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>%
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_dmm, metrics_others) %>% arrange(rank) %>%
+  mutate(.estimate = round(.estimate, 3))
+
+metrics_table <- metrics_full %>%
+  pivot_wider(names_from = .metric, values_from = .estimate) %>%
+  select(-rank) %>%
+  relocate(wflow_id, f_meas, accuracy, specificity, sensitivity, kap) %>%
+  arrange(-f_meas) %>%
+  knitr::kable()
+```
+
+```{r DM-presentation-33 }
+metrics_table
+
+# source(here::here("R/tib2latex.R"))
+# metrics_table %>% tib2latex()
+```
+
+# Test comparison
+
+## Test comparison
+
+We want to compare the results obtained with the different models, including the DM, on the test set. To do so, we have to end the tuning process and obtain the predictions on the test set, for both the ML and the DM approaches.
+
+## ML
+
+```{r DM-presentation-35 }
+results = list()
+wks = list()
+fits = list()
+preds = Data_test %>% select(y)
+test_metrics = tibble()
+
+if (!"rec_basic_tree" %in% all_workflows$wflow_id) {
+  # Add rec_basic to all workflows names
+  all_workflows %<>% mutate(wflow_id = paste0("rec_basic_", wflow_id))
+}
+
+for (model_name in model_names) {
+  # Recuperamos el modelo resultante para cada modelo del workflow,
+  # nos quedamos con el mejor y...
+  results[[model_name]] <- all_workflows %>%
+    extract_workflow_set_result(paste0("rec_basic_", model_name))
+  wks[[model_name]] <- all_workflows %>%
+    extract_workflow(paste0("rec_basic_", model_name))
+  
+  best_rank_metric <- select_best(results[[model_name]], metric = params$rank_metric)
+  
+  # finalizamos el ajuste
+  fits[[model_name]] <- wks[[model_name]] %>% 
+    finalize_workflow(best_rank_metric) %>%
+    # finalize_workflow(tibble(prod_degree = 1)) %>%
+    fit(data = Data_train)
+  
+  # Now the new predictions
+  preds %<>% bind_cols(
+    !!model_name := predict(fits[[model_name]], Data_test) %>% pull(1)
+  )
+  
+  # Now, for each combination, we obtain our metrics
+  test_metrics %<>% 
+    bind_rows(
+      my_metrics(preds, truth = y, estimate = !!model_name) %>%
+        mutate(wflow_id = model_name)
+    )
+}
+```
+
+### Renaming
+
+```{r DM-presentation-36 }
+test_metrics %<>%
+  # We want to change like follows:
+  # RF <- rf
+  # Logistic Regression <- logistic
+  # SVM-P <- svm_p
+  # SVM-R <- svm_r
+  # CART <- cart
+  # XGB <- xgb
+  # Tree <- tree
+  # NN <- nn
+  # Bag CART <- bag_cart
+  # KNN <- knn
+  mutate(wflow_id = case_when(
+     wflow_id == "rf" ~ "RF",
+     wflow_id == "logistic" ~ "Logistic Regression",
+     wflow_id == "svm_p" ~ "SVM-P",
+     wflow_id == "svm_r" ~ "SVM-R",
+     wflow_id == "cart" ~ "CART",
+     wflow_id == "xgb" ~ "XGB",
+     wflow_id == "tree" ~ "Tree",
+     wflow_id == "nn" ~ "NN",
+     wflow_id == "bag_cart" ~ "Bag CART",
+     wflow_id == "knn" ~ "KNN",
+     TRUE ~ wflow_id
+    )
+   ) %>% 
+  relocate(wflow_id)
+```
+
+## dm
+
+Queremos ajustar aquí la dm sobre todo el conjunto y luego aplicarla únicamente al conjunto test, para obtener las mismas métricas. Necesitaremos los archivos `dm.R` para esto.
+
+```{r DM-presentation-37 }
+dm_metrics_test <- dm(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test") %>%   
+  my_metrics(
+    mutate(.pred = factor(.pred, levels = levels(.truth))),
+    truth = .truth, estimate = .pred
+  )
+
+metrics_dm <- dm_metrics_test %>%
+  select(.metric, .estimate) %>%
+  mutate(wflow_id = "dm")
+
+test_metrics <- test_metrics %>%
+  bind_rows(metrics_dm)
+```
+
+## Tabla final
+
+```{r DM-presentation-38 }
+test_metrics_table <- test_metrics %>%
+  mutate(.estimate = round(.estimate, 3)) %>% 
+  select(-.estimator) %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate) %>%
+  relocate(wflow_id, f_meas, accuracy, specificity, sensitivity, kap) %>%
+  arrange(-f_meas)
+
+test_metrics_table %>% knitr::kable()
+# source(here::here("R/tib2latex.R"))
+# test_metrics_table %>% tib2latex()
+```

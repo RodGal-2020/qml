@@ -1,0 +1,342 @@
+---
+title: "Presenting the Density Matrix Model"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+codification: "UTF-8"
+output: 
+  ioslides_presentation:
+    widescreen: true # Wider form factor
+    # smaller: true # Text
+    transition: slower # default
+    css: ../config/style/matteocourthoud_custom_ioslides.css
+    logo: ../config/style/logo.svg
+params:
+  test_prop: 0.25
+  rank_metric: "bal_accuracy"
+  test: TRUE
+  bootstrap_size: 1
+---
+
+```{r setup, include=FALSE}
+source(here::here("config/setup.R"))
+library(tidyverse)
+## Auxiliary functions
+# load(here::here("data/presentations/DM_env.RData"))
+# namer::unname_chunks(here("presentations/DM.Rmd")) # Renaming
+# namer::name_chunks(here("presentations/DM.Rmd")) 
+```
+
+# Introduction
+
+## Introduction
+
+In the following presentation our idea is to share the way the Density Matrix (DM) model works, using it for a real case study.
+
+## Case study - Palmer Penguins
+
+We will be working with the Palmer `penguins` dataset, which is a well-known dataset in the R community for classification tasks. The goal is to classify penguin species based on various features. The `penguins` dataset is as follows:
+
+```{r DM-1, echo=FALSE}
+Data <- modeldata::penguins
+Data %>% glimpse()
+```
+
+## Case study - Palmer Penguins
+
+Our objective, therefore, is to identify the species using all the other variables as predictors. The species are Adelie, Chinstrap, and Gentoo.
+
+<img src="https://allisonhorst.github.io/palmerpenguins/reference/figures/lter_penguins.png" width="600px"/>
+
+# Data preparation
+
+## Data preparation - Species selection
+
+However, due to the limitations of our model so far, we will be working with only 2 of those species: Adelie and Gentoo, the ones whose difference in `Body mass` and `Flipper length` can allow us to separate them more easily.
+
+```{r DM-2 }
+Data %<>% 
+  filter(species != "Chinstrap") %>%
+  mutate(y = ifelse(species == "Adelie", "0", "1"), .keep = "unused") %>%
+  mutate(y = factor(y)) %>% 
+  relocate(y)
+```
+
+## Data preparation - aNAlysis
+
+We will just drop the `NA` values.
+
+```{r DM-3 }
+Data %<>% na.omit()
+```
+
+## Data preparation - Number of Categories
+
+```{r DM-4, echo = FALSE}
+source(here("R/plot_n_levels.R"))
+plot_n_levels(Data)
+```
+
+## Data preparation - Factor order fix
+
+Initially, the `y` variable has levels "0" and "1". We will change the order so that "1" is the positive level, so we don't have to recode the whole model.
+
+```{r DM-5 }
+Data %<>% mutate(y = forcats::fct_relevel(y, "1", "0"))
+```
+
+## Data preparation - split
+
+For the sake of comparison, we will split the data into a training set and a test set, using a proportion defined in the parameters section. We will stratify the split based on the `species` variable to ensure that both species are represented proportionally in both sets.
+
+```{r DM-6 }
+Data_split <- Data %>% rsample::initial_split(prop = 1 - params$test_prop, strata = "y")
+Data_train <- Data_split %>% rsample::training()
+Data_test <- Data_split %>% rsample::testing()
+train_resamples <- bootstraps(Data_train, times = params$bootstrap_size)
+```
+
+## Quickfix
+
+For the DM, we still need something:
+
+```{r}
+Data <- Data_train %>% mutate(test = FALSE) %>% 
+  bind_rows(Data_test %>% mutate(test = TRUE)) %>%
+  relocate(y, test)
+```
+
+
+# The DM workflow
+
+## DM
+
+In the `R/dm.R` file we have saved the 5 key functions required to use our model. In the following slides, we will present each of them for clarity, following the expected order of use.
+
+```{r}
+source(here("R/dm.R")) # 6 key functions for the DM model
+```
+
+> **Note**: `testify()` is a function we have created to facilitate the splitting of the data that is actually a duplicate of `rsample::initial_split()`, so it must be ignored, as it is kept only for compatibility.
+
+## DM - K (Kernel function)
+
+The function `K` defines the kernel used in `f_hat_h` for smooth density estimation around points. It operates on differences scaled by the window bandwidth.
+
+**Usage example:**
+
+```{r}
+# Kernel function at a vector point c(0.1, 0.2)
+v <- (-110:110)/100
+expand.grid(x = v, y = v) %>%
+  mutate(z = pmap_dbl(select(., x, y), ~ K(c(...), r = 2))) %>%
+  ggplot(aes(x = x, y = y, z = z)) +
+  geom_raster(aes(fill = z)) +
+  scale_fill_viridis_c() +
+  labs(title = "Kernel Function K(x)", x = "x", y = "y", fill = "K(x)") +
+  theme_minimal()
+```
+
+**Mathematical definition:**
+
+\[
+K(x) = 
+\begin{cases}
+\frac{1}{2} (r+2)(1 - \|x\|^2) & \text{if } \|x\|^2 < 1 \\
+0 & \text{otherwise}
+\end{cases}
+\]
+
+where \(r\) is the dimension (default 2), and \(\|x\|^2 = \sum_i x_i^2\).
+
+## DM - get_rho_d
+
+The `get_rho_d` function processes a dataset to transform it into quantum density matrices that represent class covariances in a quantum-inspired manner.
+
+**Usage example:**
+
+```{r}
+rho_d_info <- get_rho_d(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
+rho_d <- rho_d_info$rho_d
+```
+
+**Mathematical concept:**
+
+\[
+\rho_d = \frac{X X^\top}{\text{trace}(X X^\top)}
+\]
+
+where \(X\) is a matrix constructed from the data encoding class information.
+
+## DM - get_C_tilde_polar
+
+The function `get_C_tilde_polar` extracts surrogate training and testing sets in polar coordinates from the quantum density matrices, representing data in a reduced feature space suitable for classification.
+
+**Usage example:**
+
+```{r}
+C_tilde_polar <- get_C_tilde_polar(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
+```
+
+## DM - get_C_tilde_polar
+
+```{r}
+(D_tilde_train <- C_tilde_polar$train)
+```
+
+## DM - get_C_tilde_polar
+
+```{r}
+(D_tilde_test <- C_tilde_polar$test)
+```
+
+**Coordinate conversion:**
+
+\[
+r = \sqrt{V_1^2 + V_2^2}, \quad \phi_1 = \tan^{-1}\left(\frac{V_2}{V_1}\right)
+\]
+
+where \(V_1, V_2\) are coordinates in reduced dimensions.
+
+## DM - f_hat_h
+
+The function `f_hat_h` estimates the probability density of a vector \( x \) belonging to a specified class \( e_y \), using a kernel density estimation with a bandwidth window \( h \). It requires a `D_tilde`, which can be obtained as an output of `get_C_tilde_polar`.
+
+**Usage example:**
+
+```{r}
+# Given the training data in D_tilde, and a vector x for which to estimate probability for class 1:
+x <- c(v_1 = 0.01, v_2 = 0.02)
+class <- 1
+(probability <- f_hat_h(D_tilde_train, x, clase = class, h_window = 0.1))
+```
+
+**Mathematical definition:**
+
+\[
+\hat{f}_h(x|e_y) = \sum_{\tilde{X} \in \tilde{\chi}_{r, e_y}} \frac{1}{n h^r} K\left(\frac{x - \tilde{X}_r}{h}\right)
+\]
+
+where:
+- \( \tilde{\chi}_{r, e_y} \) are the surrogate training vectors for class \( e_y \),
+- \( n \) is the sample size,
+- \( h \) is the window bandwidth,
+- \( K \) is the kernel function.
+
+## DM - dm (Main function)
+
+Finally, the `dm` function is the main driver that operates the entire quantum matrix method pipeline on the given Data.
+
+**Usage example:**
+
+```{r, message=FALSE, warning=FALSE}
+(result <- dm(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test"))
+```
+
+It internally calls all other functions to prepare data, estimate density matrices, derive surrogate datasets, and return classification results.
+
+# Visualization
+
+## Visualization
+
+Our result is a tibble with the $\rho, \phi$ coordinates values, accompanied by the predicted and true class for each sample.
+
+```{r, echo=TRUE}
+result %>% head
+# Rows: 67
+# Columns: 4
+# $ r      <dbl> 0.7630426, 0.8602825, 0.7630426, 0.8003905, 0.8602825, 0.8640578, 0.8640578, 0.8003905,…
+# $ phi_1  <dbl> -0.5925971, -0.8019886, -0.5925971, -0.5192027, -0.8019886, -0.7084914, -0.7084914, -0.…
+# $ .pred  <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, …
+# $ .truth <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, …
+```
+
+## Visualization - Plot
+
+```{r, echo=FALSE}
+result %>%
+  ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "Classification Example",
+    x = "",
+    y = ""
+  ) +
+  coord_polar(theta = "y", start = 0) +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+```
+
+## Metrics
+
+```{r, echo=FALSE}
+my_metrics = metric_set(bal_accuracy, sensitivity, specificity, ppv, npv, accuracy, f_meas, kap, mcc)
+my_metrics(result, truth = .truth, estimate = .pred)
+```
+
+## Density functions visualization
+
+Podemos representar las funciones de densidad de probabilidad para cada una de las clases, para cada uno de los grupos considerados:
+
+```{r DM-28, echo=FALSE}
+library(ks)
+plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
+  # class_value = 0
+  data <- result %>% 
+  bind_rows() %>% 
+  filter(.truth == class_value) # Filter for the class
+
+  # KDE estimation
+  H <- Hpi(x = data[, c("r", "phi_1")]) # Bandwidth matrix estimation
+  fhat <- kde(x = data[, c("r", "phi_1")], H = H, gridsize = c(100, 100)) # KDE with ks
+  
+  # Convert the KDE output to a data frame
+  density_data <- expand.grid(
+    r = fhat$eval.points[[1]], 
+    phi_1 = fhat$eval.points[[2]]
+  ) %>%
+    mutate(density = as.vector(fhat$estimate))
+  
+  # Plot the KDE-based heatmap
+  kde_plot <- ggplot(density_data, aes(x = r, y = phi_1, fill = density)) +
+    geom_tile() +
+    labs(
+      title = new_title,
+      subtitle = "Kernel Density Estimate",
+      x = expression(r),
+      y = expression(phi[1])
+    ) +
+    scale_fill_viridis_c() + # Add a visually appealing color scale
+    theme_void() +
+    theme(legend.position = "none") # Remove the legend
+  
+  if (show_plot) {
+    print(kde_plot)
+  }
+  
+  if (!is.null(save_dir)) {
+    ggsave(filename = paste0(save_dir, "/kde_plot_", class_value, ".png"), plot = kde_plot)
+  }
+}
+```
+
+```{r DM-30 }
+plot_class(1, new_title = "(a) Not diagnosed", show_plot = TRUE)
+```
+
+```{r DM-31 }
+plot_class(2, new_title = "(b) Diagnosed", show_plot = TRUE)
+```
+
+## Confusion matrix - Train vs Test
+
+This table was generated for **one** split, without resampling.
+
+```{r DM-34 }
+result %>% select(.pred, .truth) %>% table()
+```
+
+# Notes
+
+## ML
+
+- On `DMnML.Rmd` an extended DM model is included for **bootstrap resampling**.

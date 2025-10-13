@@ -248,6 +248,8 @@ aw_ranks %>% select(wflow_id, mean)
 
 # 🛑 STOP
 
+We stopped here because we wanted to pay attention to the basic option and the PCA.
+
 ```{r DM-presentation-34}
 knitr::opts_chunk$set(eval = FALSE)
 ```
