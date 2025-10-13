@@ -388,7 +388,7 @@ get_C_tilde_polar = function(
   }
 }
 
-dmm = function(
+dm = function(
   Data,
   n_breaks = 3,
   objective_var = "y",
