@@ -1,0 +1,371 @@
+---
+title: "Matriz de Falcó"
+subtitle: "Titanic Battle - Comparación temporal"
+author: "José Antonio Rodríguez Gallego"
+date: "`r format(Sys.time(), '%d de %B de %Y')`"
+codification: "UTF-8"
+output:
+  rmdformats::material:
+  highlight: kate
+params:
+  echo: TRUE
+  test_prop: 0.25
+  grid_size: 5
+  bootstrap_size: 5
+  rank_metric: "accuracy"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  echo = params$echo
+)
+
+set.seed(1974)
+```
+
+```{r falco-04-1, include=FALSE}
+library(magrittr)
+
+library(readr)
+library(tidyr)
+library(dplyr)
+library(purrr)
+library(tibble)
+
+library(fasano.franceschini.test)
+library(ggplot2)
+
+library(stringr)
+
+library(tidymodels)
+library(workflows)
+
+source("R/falco.R")
+```
+
+# Introducción
+
+Queremos comparar cuánto tarda Falcó vs. un Random Forest clásico. Para ello usaremos el paquete `tictoc`.
+
+# Lectura de datos
+
+```{r falco-04-2 }
+Data <- read_csv("C:/Users/rodga/OneDrive - UNIVERSIDAD DE SEVILLA/data/sample_datasets/titanic/full.csv")
+```
+
+## Corrección de tipos
+
+```{r falco-04-3 }
+Data %>% visdat::vis_dat()
+```
+
+Esto es muy importante, pues la función `falco()` es muy sensible a los tipos de datos que se le pasan. Convertimos todos los caracteres en factores:
+
+```{r falco-04-4 }
+Data %<>% mutate_if(is.character, as.factor)
+```
+
+## Imputación de datos
+
+```{r falco-04-5 }
+Data %>% visdat::vis_miss()
+```
+
+Vamos a imputar con el valor inmeditamente anterior, primero por sexo y edad, luego solo por edad, luego solo por sexo, y luego con cualquier cosa.
+
+```{r falco-04-6 }
+Data %<>% 
+  filter(!is.na(Survived)) %>% 
+  group_by(Sex, Age) %>%
+  fill(everything(), .direction = "down") %>% 
+  group_by(Sex) %>%
+  fill(everything(), .direction = "down") %>% 
+  group_by(Age) %>%
+  fill(everything(), .direction = "down") %>% 
+  ungroup() %>% 
+  fill(everything(), .direction = "down") %>% 
+  na.omit()
+```
+
+# Inspección
+
+```{r falco-04-7}
+visdat::vis_dat(Data) +
+  labs(
+    title = "Datos originales",
+    subtitle = paste0(dim(Data), collapse = " x ")
+  )
+```
+
+## Clases en factores
+
+Queremos ver cuántos niveles hay para cada variable factorial:
+
+```{r falco-04-8}
+Data %>% 
+  select(where(is.factor)) %>% 
+  map(~ .x %>% levels %>% length) %>% 
+  as_tibble() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "n_levels") %>% 
+  ggplot(aes(x = reorder(variable, n_levels), y = n_levels)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Número de niveles en variables categóricas",
+    subtitle = "Se recomienda que no haya más de 10 niveles en una variable categórica"
+  )
+```
+
+### Variables suprimidas
+
+```{r falco-04-9}
+Data %>% 
+  select(Name, Name_wiki, Ticket, PassengerId, Cabin) %>% 
+  glimpse
+```
+
+Todas esas al infierno.
+
+```{r falco-04-10}
+Data %<>% select(-c(Name, Name_wiki, Ticket, PassengerId, Cabin))
+```
+
+### Destino y origen
+
+Los simplificamos para quedarnos simplemente con el país de origen y el estado estadounidense de destino.
+
+```{r falco-04-11}
+Data %<>% 
+  mutate(
+    Hometown = str_extract(as.character(Hometown), ", [A-Z][a-z]+, ([A-Z][a-z]+)", group = 1),
+    Destination = if_else(
+      str_detect(as.character(Destination), "US"), 
+      "US", 
+      "Other"
+    )
+  ) %>% 
+  # NAs into "Unknown"
+  mutate(
+    Hometown = ifelse(is.na(Hometown), "Unknown", Hometown),
+    Destination = ifelse(is.na(Destination), "Unknown", Destination)
+  )
+```
+
+### Body
+
+Parece que no tiene sentido al indicar si su cuerpo fue recuperado tras el naufragio. Lo eliminamos.
+
+```{r falco-04-12}
+Data %<>% select(-Body)
+```
+
+### Lifeboat
+
+Hacemos un factor lump con `forcats`:
+
+```{r falco-04-13}
+Data %<>% mutate(Lifeboat = forcats::fct_lump(Lifeboat, n = 5))
+```
+
+### Corrección de factores
+
+```{r falco-04-14}
+Data %<>% mutate_if(is.factor, ~ as.factor(as.character(.x)))
+Data %<>% mutate_if(is.character, as.factor)
+```
+
+## Inspección final
+
+```{r falco-04-15}
+visdat::vis_dat(Data) +
+  labs(
+    title = "Datos originales",
+    subtitle = paste0(dim(Data), collapse = " x ")
+  )
+```
+
+```{r falco-04-16}
+Data %>% 
+  select(where(is.factor)) %>% 
+  map(~ .x %>% levels %>% length) %>% 
+  as_tibble() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "n_levels") %>% 
+  ggplot(aes(x = reorder(variable, n_levels), y = n_levels)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Número de niveles en variables categóricas",
+    subtitle = "Se recomienda que no haya más de 10 niveles en una variable categórica"
+  )
+```
+
+## `Data_list`
+
+```{r falco-04-17, echo = TRUE}
+Data_list = list(
+    "original" = Data
+  ) %>% 
+  map(
+    ~ .x %>% 
+      rename(y = Survived) %>% 
+      mutate(y = as.factor(y)) %>% 
+      testify(objective_variable = "y", test_prob = params$test_prop) %>% 
+      relocate(y, test) %>% 
+      ungroup()
+  )
+```
+
+# Random Forest
+
+Parece que emplea 500 árboles y 3 variables predictoras.
+
+```{r falco}
+library(parsnip)
+rf_spec <- rand_forest() %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+```
+
+# Workflow + train/test
+
+Nótense las siguientes métricas, las mismas que se proponen en el artículo de Falcó.
+
+```{r falco-04-23 }
+my_metrics = yardstick::metric_set(
+  # We want to include the following: sensitivity, specificity, positive predictive value, negative predictive value, accuracy, F1 Score, Cohen's kappa, Matthews Correlation Coefficient (MCC) and the area under the ROC curve (AUC).
+  yardstick::sensitivity, 
+  yardstick::specificity, 
+  yardstick::ppv, 
+  yardstick::npv, 
+  yardstick::accuracy, 
+  yardstick::f_meas, 
+  yardstick::kap, 
+  yardstick::mcc
+  # yardstick::roc_auc
+)
+```
+
+```{r falco-04-24 }
+Data <- Data_list
+
+# Data_split <- initial_split(Data, prop = 0.75)
+# Data_train <- training(Data_split)
+# Data_test <- testing(Data_split)
+Data_train <- Data %>% map(~ .x %>% filter(test == 0) %>% select(-test))
+Data_test <- Data %>% map(~ .x %>% filter(test == 1) %>% select(-test))
+
+# El método de remuestreo para un futuro
+# train_resamples <- Data_train %>% map(bootstraps, times = params$bootstrap_size)
+```
+
+# Ajuste RF
+
+Ajustamos ahora con `Data_train` el modelo y medimos el tiempo de entrenamiento:
+
+```{r}
+tic()
+rf_fit <- rf_spec %>% fit(y ~ ., data = Data_train$original)
+toc()
+```
+
+# Ajuste Falcó
+
+```{r falco-04-29 }
+tic()
+falcos <- Data_train$original %>% falco(n_breaks = 3, objective_var = "y", verbose = 3, test_var = "test")
+toc()
+```
+# Predicciones
+
+```{r}
+tic()
+rf_preds <- rf_fit %>% predict(new_data = Data_test$original)
+toc()
+```
+
+```{r}
+tic()
+falcos <- falcos %>% map(~ .x %>% predict(rf_fit))
+toc()
+```
+
+
+
+## Visualización
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r falco-04-30 }
+falcos %>% imap(
+  ~ ggplot(.x, aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+    geom_point(size = 3, alpha = 0.8) +
+    labs(
+      title = "Classification Example", 
+      subtitle = .y,
+      x = "", 
+      y = ""
+    ) +
+    coord_polar(theta = "y", start = 0) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),  # Remove x-axis text
+          axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+)
+```
+
+## Métricas de error
+
+Obtenemos ahora, para cada uno de los experimentos realizados, las métricas correspondientes, definidas en el objeto `my_metrics`, construido con `yardstick`, sabiendo que en cada elemento de `falcos` tenemos un `tibble` con las columnas `.truth` y `.pred`:
+
+```{r falco-04-31 }
+# my_metrics(falcos[[1]], truth = .truth, estimate = .pred)
+falco_metrics <- falcos %>% map(
+  ~ my_metrics(
+    .x %>% 
+      # Que tengan los mismos niveles como factores, asumiendo que en .truth están
+      mutate(.pred = factor(.pred, levels = levels(.truth))),
+    truth = .truth, estimate = .pred)
+)
+falco_metrics
+```
+
+# Comparativa
+
+Hemos generado el objeto `falco_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
+
+## Original
+
+```{r falco-04-32, echo=FALSE}
+chosen_set = "original"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank) %>% 
+  mutate(.estimate = round(.estimate, 3))
+```
+
+Podemos visualizar los resultados obtenidos:
+
+```{r falco-04-33, echo=FALSE}
+metrics_full %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate) %>% 
+  select(-rank) %>% 
+  relocate(wflow_id, accuracy, sensitivity, specificity, f_meas, kap) %>% 
+  arrange(-accuracy) %>% 
+  knitr::kable()
+```
+
+Nótese que teníamos las mediciones estratificadas:
+
+```{r falco-04-34, echo=FALSE}
+Data_list[[chosen_set]] %>% select(y, test) %>% table
+```

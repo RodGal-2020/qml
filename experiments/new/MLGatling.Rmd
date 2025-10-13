@@ -1,0 +1,550 @@
+---
+title: "ML Gatling"
+subtitle: "When one model is not enough"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%d de %B de %Y')`"
+codification: "UTF-8"
+output:
+  rmdformats::material:
+  highlight: kate
+params:
+  echo: TRUE
+  test_prop: 0.25
+  grid_size: 10
+  bootstrap_size: 10
+  rank_metric: "f_meas"
+  mode: "classification"
+  custom: FALSE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  echo = params$echo
+)
+
+set.seed(1974)
+```
+
+```{r falco-04-1, include=FALSE}
+library(magrittr)
+library(tidyverse)
+library(stringr)
+library(tidymodels)
+library(workflows)
+# library(yardstick) # Dentro de tidymodels
+
+# Para los modelos
+library(rules)
+library(baguette)
+library(parsnip)
+library(rpart)
+```
+
+# Introducción
+
+Este documento condensa el contenido de `workflowsets` presentado en [esta página](https://www.tmwr.org/workflow-sets), de forma tal que debería ser fácil adaptarlo para otros usos.
+
+# Lectura de datos
+
+```{r falco-04-2 }
+if (params$mode == "classification") {
+  original_y <- "Species"
+  Data <- iris %>% rename(y = Species) # Species of iris
+} else if (params$model == "regression") {
+  original_y <- "mpg"
+  Data <- mtcars %>% rename(y = mpg) # Miles/(US) gallon
+}
+```
+
+## aNÁlisis
+
+```{r}
+visdat::vis_miss(Data)
+```
+
+# Inspección
+
+```{r falco-04-7}
+Data %>% 
+  visdat::vis_dat() +
+  labs(
+    title = "Datos originales",
+    subtitle = paste0(dim(Data), collapse = " x ")
+  )
+```
+
+## Factores
+
+Queremos ver cuántos niveles hay para cada variable factorial:
+
+```{r falco-04-8}
+Data %>% 
+  select(where(is.factor)) %>% 
+  map(~ .x %>% levels %>% length) %>% 
+  as_tibble() %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "n_levels") %>% 
+  ggplot(aes(x = reorder(variable, n_levels), y = n_levels)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Número de niveles en variables categóricas",
+    subtitle = "Se recomienda que no haya más de 10 niveles en una variable categórica"
+  )
+```
+
+## `Data_list`
+
+En el siguiente objeto acumulamos la lista de conjuntos de datos con los que vamos a trabajar. Esto proporciona algo más de flexibilidad a la hora de trabajar con los datos pero a cambio requiere un poco más de esfuerzo. Considerando eso vamos a preparar dos opciones, una `custom` y otra normal.
+
+```{r falco-04-17, echo = TRUE}
+if (params$custom) {
+  Data_list = list(
+    "original" = Data
+  ) %>% 
+  map(
+    ~ .x %>% 
+      rename(y = dxlungcancer) %>% 
+      # mutate(y = as.factor(y)) %>% 
+      testify(objective_variable = "y", test_prob = params$test_prop) %>% 
+      relocate(y, test) %>% 
+      ungroup()
+  )
+  
+  Data_list$original %>% select(y, test) %>% table # Inspección
+}
+```
+
+# Modelos
+
+```{r}
+model_list <- list()
+```
+
+> Sobre el *tuning*: Se asume que todos los modelos tienen hiperparámetros que se pueden ajustar. En caso de que no sea así, se puede omitir el ajuste de hiperparámetros, manualmente.
+
+## Polivalentes
+
+```{r}
+# Random forest
+rf_spec <- rand_forest(trees = tune(), mtry = tune(), min_n = tune()) %>%
+  set_engine("ranger") %>%
+  set_mode(params$mode)
+model_list %<>% append(list("rf" = rf_spec))
+
+# Árbol de decisión
+tree_spec <- decision_tree(min_n = tune()) %>%
+  set_engine("rpart") %>%
+  set_mode(params$mode)
+model_list %<>% append(list("tree" = tree_spec))
+
+# KNN
+knn_spec <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode(params$mode)
+model_list %<>% append(list("knn" = knn_spec))
+
+# MLP
+nn_spec <- mlp(hidden_units = tune(), penalty = tune(), epochs = tune()) %>% 
+  set_engine("nnet", MaxNWts = 2600) %>% 
+  set_mode(params$mode)
+model_list %<>% append(list("nn" = nn_spec))
+
+# Multivariate Adaptives Regression Splines
+mars_spec <- mars(prod_degree = tune()) %>%  #<- use GCV to choose terms
+   set_engine("earth") %>%
+   set_mode(params$mode)
+model_list %<>% append(list("mars" = mars_spec))
+
+svm_r_spec <- svm_rbf(cost = tune(), rbf_sigma = tune()) %>% 
+   set_engine("kernlab") %>% 
+   set_mode(params$mode)
+model_list %<>% append(list("svm_r" = svm_r_spec))
+
+svm_p_spec <- svm_poly(cost = tune(), degree = tune()) %>% 
+   set_engine("kernlab") %>% 
+   set_mode(params$mode)
+model_list %<>% append(list("svm_p" = svm_p_spec))
+
+bag_cart_spec <- bag_tree() %>% 
+   set_engine("rpart", times = 50L) %>% 
+   set_mode(params$mode)
+model_list %<>% append(list("bag_cart" = bag_cart_spec))
+
+xgb_spec <- boost_tree(tree_depth = tune(), learn_rate = tune(), loss_reduction = tune(), 
+              min_n = tune(), sample_size = tune(), trees = tune()) %>% 
+   set_engine("xgboost") %>% 
+   set_mode(params$mode)
+model_list %<>% append(list("xgb" = xgb_spec))
+```
+
+## Clasificación
+
+```{r}
+if (params$mode == "classification") {
+  # Regresión logística
+  logistic_spec <- logistic_reg(penalty = tune(), mixture = tune()) %>%
+    set_engine("glmnet") %>% # Escogido para el tuning
+    set_mode(params$mode)
+  model_list %<>% append(list("logistic" = logistic_spec))
+}
+```
+
+## Regresión
+
+```{r}
+if (params$mode == "regression") {
+  # Regresión lineal
+  lm_spec <- linear_reg(penalty = tune()) %>%
+    set_engine("lm") %>%
+    set_mode(params$mode)
+  model_list %<>% append(list("lm" = lm_spec))
+  
+  # Regresión LASSO
+  lasso_spec <- linear_reg(penalty = tune()) %>%
+    set_engine("glmnet") %>%
+    set_mode(params$mode)
+  model_list %<>% append(list("lasso" = lasso_spec))
+  
+  # Regresión ridge
+  ridge_spec <- linear_reg(penalty = tune()) %>%
+    set_engine("glmnet") %>%
+    set_mode(params$mode)
+  model_list %<>% append(list("ridge" = ridge_spec))
+  
+  # Cubist rule-based regression models
+  cubist_spec <- cubist_rules(committees = tune(), neighbors = tune()) %>%
+    set_engine("Cubist") %>%
+    set_mode(params$mode)
+  model_list %<>% append(list("cubist" = cubist_spec))
+}
+```
+
+## Modelos seleccionados
+
+```{r}
+# Filtramos los que nos den problemas o que no queremos a secas
+model_names <- model_list %>% names
+drop_models <- c("mars")
+model_list <- model_list[model_names[!model_names %in% drop_models]]
+```
+
+# Workflow
+
+## Métricas
+
+> **🧠 ROC AUC** no es una métrica que se pueda emplear, dado que no estamos considerando las probabilidades como posibles salidas de los modelos contemplados.
+
+```{r falco-04-23 }
+if (params$mode == "classification") {
+  my_metrics = metric_set(sensitivity, specificity, ppv, npv, accuracy, f_meas, kap, mcc)
+} else {
+  my_metrics = metric_set(rmse, mae, mpe, rsq)
+}
+```
+
+## Entrenamiento y test
+
+```{r falco-04-24 }
+if (params$custom) {
+  Data <- Data_list
+  Data_train <- Data %>% map(~ .x %>% filter(test == 0) %>% select(-test))
+  Data_test <- Data %>% map(~ .x %>% filter(test == 1) %>% select(-test))
+} else {
+  Data_split <- initial_split(Data, prop = params$test_prop)
+  Data_train <- training(Data_split)
+  Data_test <- testing(Data_split)
+}
+```
+
+### Remuestreo *bootstrap*
+
+```{r falco-04-24 }
+train_resamples <- Data_train %>% map(bootstraps, times = params$bootstrap_size)
+```
+
+# 🟥 Hasta aquí
+
+## 🍳🟧 Receta
+
+> 🟧 Alerta: Hemos llegado al límite mental, de forma tal que ya no sabemos lo que está haciendo SMOTE y si deberíamos estar empleando `Data_train` o `Data_list`. Parece de todos modos que no afecta nada a los resultados posteriores.
+
+Tratándose de variables categóricas definimos una receta realmente sencilla, que posteriormente aplicaremos para generar un conjunto de datos apropiado para la matriz de Falcó.
+
+> **Nota**: Realmente podríamos estar trabajando con varias recetas al mismo tiempo.
+
+```{r}
+rec1 <- recipe(y ~ ., data = Data_train$original) %>%
+  step_novel(all_predictors()) %>% # Valores nuevos, aunque no se den
+  step_other(all_predictors(), threshold = 0.01, other = "other") %>% # Categorías infrecuentes
+  step_novel(all_predictors()) %>% 
+  step_dummy(all_nominal(), -y) %>%
+  themis::step_smote(y, over_ratio = 0.5) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors()) # Near zero 
+```
+
+### Simplificada para Falcó
+
+```{r}
+rec1f <- recipe(y ~ ., data = Data_train$original) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors()) 
+```
+
+### Cocinado
+
+```{r}
+baked_Data_list <- Data_list %>% 
+  map(~ rec1 %>% prep(.x) %>% bake(new_data = .x))
+
+baked_Data_list$original
+```
+
+#### Falcó
+
+```{r}
+baked_Data_trainf <- Data_train %>% map(~ rec1f %>% prep(.x) %>% bake(new_data = .x))
+baked_Data_testf <- Data_test %>% map(~ rec1f %>% prep(.x) %>% bake(new_data = .x))
+# Las rejuntamos indicando test o no
+
+baked_Dataf <- Data_train %>% map(
+  ~ rec1f %>% prep(.x) %>% bake(new_data = .x)  %>% mutate(test = FALSE)
+) %>% 
+  map2(Data_test, ~ bind_rows(.x, .y %>% mutate(test = TRUE)) %>% relocate(y, test))
+
+baked_Dataf$original
+```
+
+### SMOTE
+
+```{r}
+baked_Data_list$original
+```
+
+
+## `workflowset`
+
+```{r r workflow+formula+objective}
+all_workflows <- workflow_set(
+  preproc = list("rec1" = rec1),
+  # preproc = list("formula" = y ~ .), # Basic
+  
+  models = list(
+    tree = tree_spec,
+    rf = rf_spec,
+    # pcc = pcc_spec, # Esto realmente es KNN
+    logistic = logistic_spec,
+    knn = knn_spec,
+    nn = nn_spec,
+    
+    # DIABLO
+    # mars = mars_spec,
+    svm_r = svm_r_spec,
+    svm_p = svm_p_spec,
+    cart = cart_spec,
+    bag_cart = bag_cart_spec,
+    xgb = xgb_spec
+    # cubist = cubist_spec
+  )) %>% 
+ option_add(
+   id = "formula_cart", 
+   control = control_grid(extract = function(x) x)
+ )
+
+all_workflows
+```
+
+## Ajuste
+
+### Grid de control
+
+```{r}
+grid_ctrl <- control_grid(
+  save_pred = TRUE,
+  parallel_over = "everything",
+  save_workflow = TRUE
+)
+```
+
+### Con tuning
+
+> [Referencia clave](https://www.tmwr.org/workflow-sets)
+
+```{r}
+all_workflows <- train_resamples %>% map(
+  ~ all_workflows %>% 
+      workflow_map(
+      fn = "tune_grid", # tune_grid por defecto
+      # ...
+      resamples = .x, 
+      grid = params$grid_size, 
+      metrics = my_metrics, 
+      control = grid_ctrl,
+      verbose = TRUE
+      ) %>% 
+      mutate(wflow_id = sub("rec1_", "", wflow_id)) # Eliminamos "formula_" en cada identificador
+)
+
+all_workflows
+```
+
+Lo anterior puede fallar si alguno de los modelos considerados no admite tuning. Nótese que en dicho caso no es especialmente comunicativo.
+
+### Sin tuning
+
+Al no haber *tuning* recurrimos a `fit_resamples()`.
+
+```{r falco-04-26, eval = FALSE}
+all_workflows <- train_resamples %>% map(
+  ~ all_workflows %>% 
+    workflow_map(
+      "fit_resamples", 
+      resamples = .x, # Para cada train_resample
+      grid = params$grid_size, 
+      metrics = my_metrics, # IMPORTANTE
+      verbose = TRUE) %>% 
+      mutate(wflow_id = sub("formula_", "", wflow_id)) # Eliminamos "formula_" en cada identificador
+    )
+)
+
+all_workflows
+```
+
+### Resultados
+
+Si lo siguiente fallase habría que lanzar la orden `show_notes(.Last.tune.result)`, que es lo suficientemente informativa. También puede ayudar el instalar los paquetes de los modelos que se están utilizando (#Ranger).
+
+```{r falco-04-27 }
+all_workflows %>% map(~ .x %>% rank_results(rank_metric = params$rank_metric))
+```
+
+Or a handy plot: 
+
+```{r falco-04-28 }
+all_workflows %>% map( ~ .x %>% autoplot(metric = params$rank_metric)  +
+  geom_text(aes(y = mean - 0.04, label = wflow_id), angle = 90, hjust = 1) +
+  lims(y = c(0.8, 0.95)) +
+   theme(legend.position = "none")
+)
+```
+
+Repetimos ahora lo mismo pero considerando solo la mejor versión de cada uno de los modelos empleados, con el parámetro `select_best`:
+
+```{r}
+all_workflows %>% map(~ .x %>% 
+  workflowsets::rank_results(rank_metric = params$rank_metric, select_best = TRUE) %>% 
+    filter(.metric == params$rank_metric)
+)
+```
+
+```{r}
+all_workflows %>% map( ~ .x %>% 
+  autoplot(metric = params$rank_metric, select_best = TRUE) +
+  geom_text(aes(y = mean - 0.04, label = wflow_id), angle = 90, hjust = 1) +
+  lims(y = c(0.8, 0.95)) +
+   theme(legend.position = "none")
+)
+```
+
+### Parámetros específicos
+
+Lo siguiente es por si nos interesase ver qué parámetros concretos son los que se han seleccionado para cada uno de los modelos:
+
+```{r}
+all_workflows %>% map(~ .x %>% autoplot(id = "rf", metric = "f_meas"))
+```
+
+# Resultados con la matriz de Falcó
+
+Nótese que hemos logrado aplicar la receta simplificada, `rec1f`, generando así manualmente un conjunto apropiado para esto.
+
+```{r falco-04-29 }
+# falcos <- Data_list %>%
+falcos <- baked_Dataf %>%
+  map(falco, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test")
+```
+
+## Visualización
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r falco-04-30 }
+falcos %>% imap(
+  ~ ggplot(.x, aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+    geom_point(size = 3, alpha = 0.8) +
+    labs(
+      title = "Classification Example", 
+      subtitle = .y,
+      x = "", 
+      y = ""
+    ) +
+    coord_polar(theta = "y", start = 0) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),  # Remove x-axis text
+          axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+)
+```
+
+## Métricas de error
+
+Obtenemos ahora, para cada uno de los experimentos realizados, las métricas correspondientes, definidas en el objeto `my_metrics`, construido con `yardstick`, sabiendo que en cada elemento de `falcos` tenemos un `tibble` con las columnas `.truth` y `.pred`:
+
+```{r falco-04-31 }
+# my_metrics(falcos[[1]], truth = .truth, estimate = .pred)
+falco_metrics <- falcos %>% map(
+  ~ my_metrics(
+    .x %>% 
+      # Que tengan los mismos niveles como factores, asumiendo que en .truth están
+      mutate(.pred = factor(.pred, levels = levels(.truth))),
+    truth = .truth, estimate = .pred)
+)
+falco_metrics
+```
+
+# Comparativa
+
+Hemos generado el objeto `falco_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
+
+## Notas
+
+- Tamaño de la cuadrícula: `r params$grid_size`
+- Métrica de ranking: `r params$rank_metric`
+- Número de muestras bootstrap: `r params$bootstrap_size`
+
+## Original
+
+```{r falco-04-32, echo=FALSE}
+chosen_set = "original"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric, select_best = TRUE) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank) %>% 
+  mutate(.estimate = round(.estimate, 3))
+```
+
+Podemos visualizar los resultados obtenidos:
+
+```{r falco-04-33, echo=FALSE}
+metrics_full %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate) %>% 
+  select(-rank) %>% 
+  relocate(wflow_id, f_meas, accuracy, specificity, sensitivity, , kap) %>% 
+  arrange(-accuracy) %>% 
+  knitr::kable()
+```
+
+Nótese que teníamos las mediciones estratificadas:
+
+```{r falco-04-34, echo=FALSE}
+Data_list[[chosen_set]] %>% select(y, test) %>% table
+```

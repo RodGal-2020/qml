@@ -17,13 +17,13 @@ params:
   # grid_size: 1
   # bootstrap_size: 1
   ## TEST
-  # test: TRUE
-  # grid_size: 3
-  # bootstrap_size: 3
+  test: TRUE
+  grid_size: 3
+  bootstrap_size: 3
   ## FINAL
-  test: FALSE
-  grid_size: 10
-  bootstrap_size: 10
+  # test: FALSE
+  # grid_size: 10
+  # bootstrap_size: 10
 ---
 
 ```{r setup, include=FALSE}

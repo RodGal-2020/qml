@@ -1,0 +1,468 @@
+---
+title: "Matriz de Falcó"
+subtitle: "Iris Bífido"
+author: "José Antonio Rodríguez Gallego"
+date: "`r format(Sys.time(), '%d de %B de %Y')`"
+codification: "UTF-8"
+output:
+  rmdformats::material:
+  highlight: kate
+params:
+  echo: TRUE
+  test_prop: 0.2
+  grid_size: 10
+  rank_metric: "accuracy"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  echo = params$echo
+)
+
+set.seed(1974)
+```
+
+```{r falco-02-1, include=FALSE}
+library(magrittr)
+
+library(tidyr)
+library(dplyr)
+library(purrr)
+library(tibble)
+```
+
+# Introducción
+
+Buscamos en este documento contrastar el método de la matriz cuántica de Falcó con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos a 3 variaciones del clásico conjunto `iris`.
+
+# Creación de los diferentes conjuntos de datos
+
+Empezamos preparando variaciones del conjunto `iris`, incluyendo variables que sean una combinación lineal de las variables originales y una combinación cuadrática. La idea es comprobar cómo es capaz de trabajar el modelo con estos datos concretos.
+
+```{r falco-02-2 }
+iris_lin = iris %>% mutate(comb.lineal = 2*Sepal.Length + 3*Sepal.Width)
+cl_mean = mean(iris_lin$comb.lineal)
+
+iris_cuad = iris %>% mutate(comb.cuadratic = Sepal.Length^2 + Sepal.Width^2)
+cuad_mean = mean(iris_cuad$comb.cuadratic)
+```
+
+A continuación generamos 5 conjuntos de datos, en todos los casos obteniendo variables categóricas determinadas simplemente por el verificar o no una condición. La lectura del siguiente fragmento de código debería ser autoexplicativa:
+
+```{r falco-02-3, echo = TRUE}
+mean_Sepal.Length = mean(iris$Sepal.Length)
+
+Data_list = list(
+ "virginica" = iris %>% mutate(y = Species == "virginica"),
+ "greater" = iris %>% mutate(y = Sepal.Length > mean_Sepal.Length),
+ "smaller" = iris %>% mutate(y = Sepal.Length < mean_Sepal.Length),
+ "lineal" = iris_lin %>% mutate(y = comb.lineal > cl_mean, .keep = "unused"),
+ "cuadratic" = iris_cuad %>% mutate(y = comb.cuadratic > cuad_mean, .keep = "unused")
+) %>% 
+  map(
+    ~ .x %>% 
+      mutate(y = as.factor(y)) %>% 
+      mutate(test = runif(nrow(.x)) < params$test_prop)
+  )
+```
+
+# Automatización del procedimiento
+
+Hasta ahora habíamos implementado la matriz de Falcó de forma manual, pero evidentemente esto no es lo que buscamos al trabajar con varios conjuntos de datos al mismo tiempo. Con eso en mente, vamos a implementar una función que agilice considerablemente el cálculo de los resultados de este método. Para ello, simplemente canibalizamos los resultados obtenidos en el archivo [falco_01](falco_01.R).
+
+```{r falco-02-4, echo = TRUE}
+library(fasano.franceschini.test)
+library(ggplot2)
+```
+
+Como nuestra idea es poder publicar este código eventualmente en un paquete, vamos a implementar estas funciones en un archivo separado, `R/falco.R`. A continuación, cargamos el archivo y comprobamos que las funciones `K, f_gorro_h` y `falco` están disponibles.
+
+```{r falco-02-5 }
+source("R/falco.R")
+```
+
+## Núcleo $K$
+
+Empezamos viendo el aspecto del núcleo $K$ que vamos a considerar:
+
+```{r falco-02-6, echo = FALSE}
+# Apply K function using pmap in a parallel way
+expand.grid(v_1 = -30:30/30, v_2 = -30:30/30) %>%
+  mutate(k_value = pmap_dbl(select(., v_1, v_2), ~ K(..., r = 2))) %>%
+  # 2-dimensional graph with ggplot2
+  # install.packages("ggplot2")
+  ggplot2::ggplot() +
+  # ggplot2::geom_point(ggplot2::aes(x = v_1, y = v_2, color = k_value)) +
+  ggplot2::geom_raster(ggplot2::aes(x = v_1, y = v_2, fill = k_value)) +
+  ggplot2::scale_color_gradient(low = "blue", high = "red") +
+  ggplot2::theme_bw() +
+  # Mejoramos los valores de leyenda
+  ggplot2::labs(
+    title = "K function",
+    subtitle = "r = 2",
+    x = "v_1",
+    y = "v_2",
+    color = "k_value"
+  )
+```
+
+## Función estimadora de la densidad
+
+Para la función de densidad $f_h$ vamos a considerar la función estimadora $\hat{f}_h$ que se define como:
+
+$$
+\hat{f}_h(x|e_y) = \sum_{\tilde{X} \in \tilde{\chi}_{r, e_y}} \frac{1}{nh^r} K(\frac{x - \tilde{X}_r}{h})
+$$
+
+Con ella podemos ver, por ejemplo, cómo se comporta la función de densidad para un conjunto de datos concreto:
+
+```{r falco-02-7, echo = FALSE}
+# f_gorro_h(D_tilde, x, clase, h_window = 0.1)
+```
+
+## Matriz de Falcó
+
+A partir de los pasos anteriores y un conjunto de datos concreto, podemos obtener la matriz de Falcó y obtener una clasificación para cada valor presente:
+
+```{r falco-02-8, echo = TRUE, message = TRUE}
+falco(Data = Data_list[["virginica"]], n_breaks = 3, objective_var = "y", verbose = 3, test_var = "test")
+```
+
+## Métricas de error
+
+# Resultados con modelos clásicos - `Data_list[1]`
+
+Para realizar esto vamos a recurrir al paquete `tidymodels`, que simplifica considerablemente el dar el salto de un modelo a otro.
+
+```{r falco-02-9 }
+library(tidymodels)
+library(workflows)
+```
+
+No solo eso, sino que en este caso vamos a usar `workflowsets`, que nos permite comparar diferentes modelos de forma sencilla.
+
+## Modelos
+
+Definimos a continuación los diferentes modelos que queremos emplear, guiándonos con [este artículo](https://workflowsets.tidymodels.org/articles/tuning-and-comparing-models.html), que indica una forma ordenada de proceder.
+
+### Árbol de decisión
+
+```{r falco-02-10 }
+library(rpart)
+tree_spec <- decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+```
+
+### PCC
+
+```{r falco-02-11 }
+library(parsnip)
+pcc_spec <- nearest_neighbor() %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+```
+
+### Regresión logística
+
+```{r falco-02-12 }
+library(parsnip)
+logistic_spec <- logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+```
+
+### Red neuronal
+
+```{r falco-02-13 }
+library(parsnip)
+nn_spec <- mlp() %>%
+  set_engine("nnet") %>%
+  set_mode("classification")
+```
+
+### KNN
+
+```{r}
+library(parsnip)
+knn_spec <- nearest_neighbor(neighbors = 5) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+```
+
+
+## Workflow + train/test
+
+Nótense las siguientes métricas, las mismas que se proponen en el artículo de Falcó.
+
+```{r falco-02-14 }
+my_metrics = yardstick::metric_set(
+  # We want to include the following: sensitivity, specificity, positive predictive value, negative predictive value, accuracy, F1 Score, Cohen's kappa, Matthews Correlation Coefficient (MCC) and the area under the ROC curve (AUC).
+  yardstick::sensitivity, 
+  yardstick::specificity, 
+  yardstick::ppv, 
+  yardstick::npv, 
+  yardstick::accuracy, 
+  yardstick::f_meas, 
+  yardstick::kap, 
+  yardstick::mcc
+  # yardstick::roc_auc
+)
+```
+
+```{r falco-02-15 }
+Data <- Data_list
+
+# Data_split <- initial_split(Data, prop = 0.75)
+# Data_train <- training(Data_split)
+# Data_test <- testing(Data_split)
+Data_train <- Data %>% map(~ .x %>% filter(test == 0) %>% select(-test))
+Data_test <- Data %>% map(~ .x %>% filter(test == 1) %>% select(-test))
+
+# El método de remuestreo para un futuro
+train_resamples <- Data_train %>% map(bootstraps)
+```
+
+```{r r workflow+formula+objective}
+all_workflows <- 
+  workflow_set(
+    preproc = list("formula" = y ~ .),
+    models = list(
+      tree = tree_spec,
+      pcc = pcc_spec,
+      logistic = logistic_spec,
+      knn = knn_spec,
+      nn = nn_spec
+    ))
+all_workflows
+```
+
+### Ajuste
+
+```{r falco-02-16 }
+all_workflows %<>% 
+   option_add(
+     id = "formula_cart", 
+     control = control_grid(extract = function(x) x)
+   )
+all_workflows
+```
+
+> **IMPORTANTE**: Como es una regresión logística no hay parámetros que *tunear*, así que empleamos la función `fit_resamples()`.
+
+> **TODO:** ¿Y los que sí que tienen parámetros que tunear, como la red neuronal?
+
+```{r falco-02-17 }
+# Specifying arguments here adds to any previously set with `option_add()`:
+all_workflows <- train_resamples %>% map(
+  ~ all_workflows %<>% workflow_map(
+  "fit_resamples", 
+  resamples = .x, # Para cada train_resample
+  grid = params$grid_size, 
+  metrics = my_metrics, # IMPORTANTE
+  verbose = TRUE)
+)
+
+all_workflows
+```
+
+Aunque no hayamos obtenido resultados para el PCC lo conservamos, pues esto sigue funcionando bien. Podríamos filtrarlo.
+
+```{r falco-02-18 }
+all_workflows %>% 
+  map(
+    ~ .x %>% rank_results(rank_metric = params$rank_metric)
+  )
+```
+
+Or a handy plot: 
+
+```{r falco-02-19 }
+all_workflows %>% map( ~ .x %>% autoplot(metric = params$rank_metric))
+```
+
+Podemos guardar resultados concretos:
+
+```{r falco-02-20 }
+tree_results <- 
+  all_workflows[[1]] %>% 
+  extract_workflow_set_result("formula_tree")
+tree_results
+
+tree_workflow <- 
+  all_workflows[[1]] %>% 
+  extract_workflow("formula_tree")
+tree_workflow
+
+tree_workflow_fit <- 
+  tree_workflow %>% 
+  finalize_workflow(tibble(prod_degree = 1)) %>% 
+  fit(data = Data_train[[1]])
+tree_workflow_fit
+```
+
+# Resultados con la matriz de Falcó
+
+```{r falco-02-21 }
+falcos <- Data_list %>% 
+  map(falco, n_breaks = 3, objective_var = "y", verbose = 3, test_var = "test")
+```
+
+## Visualización
+
+Podemos representar el primer resultado y ver cómo ha ido esa clasificación, para los diferentes grupos considerados:
+
+```{r falco-02-22 }
+falcos %>% imap(
+  ~ ggplot(.x, aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
+    geom_point(size = 3, alpha = 0.8) +
+    labs(
+      title = "Classification Example", 
+      subtitle = .y,
+      x = "", 
+      y = ""
+    ) +
+    coord_polar(theta = "y", start = 0) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),  # Remove x-axis text
+          axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+)
+```
+
+## Métricas de error
+
+Obtenemos ahora, para cada uno de los experimentos realizados, las métricas correspondientes, definidas en el objeto `my_metrics`, construido con `yardstick`, sabiendo que en cada elemento de `falcos` tenemos un `tibble` con las columnas `.truth` y `.pred`:
+
+```{r falco-02-23 }
+# my_metrics(falcos[[1]], truth = .truth, estimate = .pred)
+falco_metrics <- falcos %>% map(
+  ~ my_metrics(.x, truth = .truth, estimate = .pred)
+)
+falco_metrics
+```
+
+# Comparativa de resultados
+
+Hemos generado el objeto `falco_metrics`, que contiene las métricas de error para cada uno de los experimentos realizados. Ahora, vamos a comparar estos resultados con los obtenidos en el apartado anterior, para cada uno de los casos de estudio.
+
+## Virgínica
+
+```{r falco-02-24 }
+chosen_set = "virginica"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank)
+metrics_full
+```
+
+Imprimimos la tabla anterior completa solo para este ejemplo, al querer centrarnos realmente en "los mejores".
+
+Podemos ver ahora los tres mejores, para cada métrica:
+
+```{r falco-02-25 }
+metrics_full %>% group_by(.metric) %>% top_n(3) %>% arrange(.metric) %>% print(n = Inf)
+```
+
+
+## Greater
+
+```{r falco-02-26 }
+chosen_set = "greater"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank)
+```
+
+Podemos ver ahora los tres mejores, para cada métrica:
+
+```{r falco-02-27 }
+metrics_full %>% group_by(.metric) %>% top_n(3) %>% arrange(.metric) %>% print(n = Inf)
+```
+
+## Smaller
+
+```{r falco-02-28 }
+chosen_set = "smaller"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank)
+```
+
+Podemos ver ahora los tres mejores, para cada métrica:
+
+```{r falco-02-29 }
+metrics_full %>% group_by(.metric) %>% top_n(3) %>% arrange(.metric) %>% print(n = Inf)
+```
+
+## Lineal
+
+```{r falco-02-30 }
+chosen_set = "lineal"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank)
+```
+
+Podemos ver ahora los tres mejores, para cada métrica:
+
+```{r falco-02-31 }
+metrics_full %>% group_by(.metric) %>% top_n(3) %>% arrange(.metric) %>% print(n = Inf)
+```
+
+## Cuadratic
+
+```{r falco-02-32 }
+chosen_set = "cuadratic"
+
+metrics_falco <- falco_metrics[[chosen_set]] %>% 
+  select(.metric, .estimate) %>% 
+  mutate(wflow_id = "falco", rank = 0)
+
+metrics_others <- all_workflows[[chosen_set]] %>% 
+  rank_results(rank_metric = params$rank_metric) %>% # Ordenados según accuracy
+  select(.metric, mean, wflow_id, rank) %>% 
+  rename(.estimate = mean)
+
+metrics_full <- bind_rows(metrics_falco, metrics_others) %>% arrange(rank)
+```
+
+Podemos ver ahora los tres mejores, para cada métrica:
+
+```{r falco-02-33 }
+metrics_full %>% group_by(.metric) %>% top_n(3) %>% arrange(.metric) %>% print(n = Inf)
+```
