@@ -92,14 +92,13 @@ For the sake of comparison, we will split the data into a training set and a tes
 Data_split <- Data %>% rsample::initial_split(prop = 1 - params$test_prop, strata = "y")
 Data_train <- Data_split %>% rsample::training()
 Data_test <- Data_split %>% rsample::testing()
-train_resamples <- bootstraps(Data_train, times = params$bootstrap_size)
 ```
 
 ## Quickfix
 
 For the DM, we still need something:
 
-```{r}
+```{r DM-7}
 Data <- Data_train %>% mutate(test = FALSE) %>% 
   bind_rows(Data_test %>% mutate(test = TRUE)) %>%
   relocate(y, test)
@@ -112,7 +111,7 @@ Data <- Data_train %>% mutate(test = FALSE) %>%
 
 In the `R/dm.R` file we have saved the 5 key functions required to use our model. In the following slides, we will present each of them for clarity, following the expected order of use.
 
-```{r}
+```{r DM-8}
 source(here("R/dm.R")) # 6 key functions for the DM model
 ```
 
@@ -124,7 +123,7 @@ The function `K` defines the kernel used in `f_hat_h` for smooth density estimat
 
 **Usage example:**
 
-```{r}
+```{r DM-9}
 # Kernel function at a vector point c(0.1, 0.2)
 v <- (-110:110)/100
 expand.grid(x = v, y = v) %>%
@@ -154,7 +153,7 @@ The `get_rho_d` function processes a dataset to transform it into quantum densit
 
 **Usage example:**
 
-```{r}
+```{r DM-10}
 rho_d_info <- get_rho_d(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
 rho_d <- rho_d_info$rho_d
 ```
@@ -173,19 +172,19 @@ The function `get_C_tilde_polar` extracts surrogate training and testing sets in
 
 **Usage example:**
 
-```{r}
+```{r DM-11}
 C_tilde_polar <- get_C_tilde_polar(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
 ```
 
 ## DM - get_C_tilde_polar
 
-```{r}
+```{r DM-12}
 (D_tilde_train <- C_tilde_polar$train)
 ```
 
 ## DM - get_C_tilde_polar
 
-```{r}
+```{r DM-13}
 (D_tilde_test <- C_tilde_polar$test)
 ```
 
@@ -203,7 +202,7 @@ The function `f_hat_h` estimates the probability density of a vector \( x \) bel
 
 **Usage example:**
 
-```{r}
+```{r DM-14}
 # Given the training data in D_tilde, and a vector x for which to estimate probability for class 1:
 x <- c(v_1 = 0.01, v_2 = 0.02)
 class <- 1
@@ -228,7 +227,7 @@ Finally, the `dm` function is the main driver that operates the entire quantum m
 
 **Usage example:**
 
-```{r, message=FALSE, warning=FALSE}
+```{r DM-15, message=FALSE, warning=FALSE}
 (result <- dm(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test"))
 ```
 
@@ -240,7 +239,7 @@ It internally calls all other functions to prepare data, estimate density matric
 
 Our result is a tibble with the $\rho, \phi$ coordinates values, accompanied by the predicted and true class for each sample.
 
-```{r, echo=TRUE}
+```{r DM-16, echo=TRUE}
 result %>% head
 # Rows: 67
 # Columns: 4
@@ -252,7 +251,7 @@ result %>% head
 
 ## Visualization - Plot
 
-```{r, echo=FALSE}
+```{r DM-17, echo=FALSE}
 result %>%
   ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
   geom_point(size = 3, alpha = 0.8) +
@@ -268,7 +267,8 @@ result %>%
 
 ## Metrics
 
-```{r, echo=FALSE}
+```{r DM-18, echo=FALSE}
+library(yardstick)
 my_metrics = metric_set(bal_accuracy, sensitivity, specificity, ppv, npv, accuracy, f_meas, kap, mcc)
 my_metrics(result, truth = .truth, estimate = .pred)
 ```
@@ -277,7 +277,7 @@ my_metrics(result, truth = .truth, estimate = .pred)
 
 Podemos representar las funciones de densidad de probabilidad para cada una de las clases, para cada uno de los grupos considerados:
 
-```{r DM-28, echo=FALSE}
+```{r DM-19, echo=FALSE}
 library(ks)
 plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
   # class_value = 0
@@ -319,11 +319,11 @@ plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL)
 }
 ```
 
-```{r DM-30 }
+```{r DM-20 }
 plot_class(1, new_title = "(a) Not diagnosed", show_plot = TRUE)
 ```
 
-```{r DM-31 }
+```{r DM-21 }
 plot_class(2, new_title = "(b) Diagnosed", show_plot = TRUE)
 ```
 
@@ -331,7 +331,7 @@ plot_class(2, new_title = "(b) Diagnosed", show_plot = TRUE)
 
 This table was generated for **one** split, without resampling.
 
-```{r DM-34 }
+```{r DM-22 }
 result %>% select(.pred, .truth) %>% table()
 ```
 
