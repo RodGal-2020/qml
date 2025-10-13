@@ -58,7 +58,7 @@ In this document we want to compare the effect of the PCA versus our proposal re
 We must have columns with constant sum. We will generate a random dataset with 5 columns of zeros and ones, using as a reference the iris dataset, with only 2 species and 2 variables, which will be discretized.
 
 ```{r 01-DMM-vs-PCA-1}
-source(here("theory", "DMM_vs_PCA_code", "dataset.R"))
+source(here("experiments/new/DMM_vs_PCA_code", "dataset.R"))
 Data$basic %>% head(3)
 Data$uniclass %>% head(3)
 Data$design %>% head(3)
