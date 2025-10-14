@@ -4,12 +4,14 @@
 \alias{empty_prediction_result}
 \title{Create Empty Prediction Result}
 \usage{
-empty_prediction_result(type, classes)
+empty_prediction_result(type, classes, return_coords = FALSE)
 }
 \arguments{
 \item{type}{Prediction type}
 
 \item{classes}{Model classes}
+
+\item{return_coords}{Whether to include coordinates}
 }
 \value{
 Empty result in correct format

@@ -4,7 +4,7 @@
 \alias{predict.dm_fit}
 \title{Predict method for quantum matrix classifier}
 \usage{
-\method{predict}{dm_fit}(object, newdata, type = c("class", "prob"), ...)
+\method{predict}{dm_fit}(object, newdata, type = c("class", "prob"), return_coords = FALSE, ...)
 }
 \arguments{
 \item{object}{A fitted model object of class "dm_fit"}
@@ -13,11 +13,14 @@
 
 \item{type}{Type of prediction: "class" for predicted classes, "prob" for class probabilities}
 
+\item{return_coords}{Logical. If TRUE, returns polar coordinates (r, phi) along with predictions}
+
 \item{...}{Additional arguments (currently unused)}
 }
 \value{
 For type="class": factor vector of predicted classes.
-For type="prob": tibble with class probabilities (columns = classes)
+For type="prob": tibble with class probabilities (columns = classes).
+If return_coords=TRUE: list with predictions and polar coordinates
 }
 \description{
 Make predictions using a fitted quantum matrix classifier.
@@ -27,5 +30,9 @@ Follows tidymodels conventions: uses stored model parameters without refitting.
 model <- dm_fit(Species ~ ., data = iris)
 predict(model, iris)
 predict(model, iris, type = "prob")
+# Get predictions with polar coordinates for visualization
+result <- predict(model, iris, return_coords = TRUE)
+result$predictions  # Standard predictions
+result$coords       # Polar coordinates (r, phi_1)
 
 }

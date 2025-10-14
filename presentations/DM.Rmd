@@ -27,8 +27,8 @@ source(here::here("config/setup.R"))
 ```
 
 ```{r package-setup, include=FALSE, warning=FALSE}
-# devtools::document()
 # {
+#   devtools::document()
 #   devtools::install(".", upgrade = "never", quiet = TRUE)
 #   cat("✓ Package installed successfully\n")
 # }

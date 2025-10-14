@@ -112,18 +112,24 @@ dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, ...) {
 #' @param object A fitted model object of class "dm_fit"
 #' @param newdata A data frame containing new observations to predict
 #' @param type Type of prediction: "class" for predicted classes, "prob" for class probabilities
+#' @param return_coords Logical. If TRUE, returns polar coordinates (r, phi) along with predictions
 #' @param ... Additional arguments (currently unused)
 #'
 #' @return For type="class": factor vector of predicted classes.
-#'         For type="prob": tibble with class probabilities (columns = classes)
+#'         For type="prob": tibble with class probabilities (columns = classes).
+#'         If return_coords=TRUE: list with predictions and polar coordinates
 #'
 #' @examples
 #' model <- dm_fit(Species ~ ., data = iris)
 #' predict(model, iris)
 #' predict(model, iris, type = "prob")
+#' # Get predictions with polar coordinates for visualization
+#' result <- predict(model, iris, return_coords = TRUE)
+#' result$predictions  # Standard predictions
+#' result$coords       # Polar coordinates (r, phi_1)
 #'
 #' @export
-predict.dm_fit <- function(object, newdata, type = c("class", "prob"), ...) {
+predict.dm_fit <- function(object, newdata, type = c("class", "prob"), return_coords = FALSE, ...) {
   type <- match.arg(type)
   
   # Validate inputs (tidymodels pattern)
@@ -174,13 +180,18 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), ...) {
         .pred_class = purrr::map_dbl(pred_result, ~ .x$class),
         .pred_probs = purrr::map(pred_result, ~ .x$probs)
       )
+    
+    # Store polar coordinates for optional return
+    polar_coords <- all_observations %>%
+      dplyr::select(r, phi_1)
+    
   } else {
-    return(empty_prediction_result(type, object$classes))
+    return(empty_prediction_result(type, object$classes, return_coords))
   }
 
-  # Return tidymodels-style formatted results
+  # Format predictions according to type
   if (type == "class") {
-    factor(
+    predictions <- factor(
       prediction_results$.pred_class,
       levels = seq_along(object$classes),
       labels = object$classes
@@ -190,26 +201,44 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), ...) {
     prob_matrix <- prediction_results$.pred_probs %>%
       do.call(rbind, .)
     
-    prob_tibble <- tibble::as_tibble(prob_matrix)
-    colnames(prob_tibble) <- paste0(".pred_", object$classes)
-    prob_tibble
+    predictions <- tibble::as_tibble(prob_matrix)
+    colnames(predictions) <- paste0(".pred_", object$classes)
+  }
+  
+  # Return coordinates along with predictions if requested
+  if (return_coords) {
+    return(list(
+      predictions = predictions,
+      coords = polar_coords
+    ))
+  } else {
+    return(predictions)
   }
 }
 
 #' @title Create Empty Prediction Result
 #' @param type Prediction type
 #' @param classes Model classes
+#' @param return_coords Whether to include coordinates
 #' @return Empty result in correct format
 #' @keywords internal
-empty_prediction_result <- function(type, classes) {
+empty_prediction_result <- function(type, classes, return_coords = FALSE) {
   if (type == "class") {
-    factor(character(0), levels = classes)
+    predictions <- factor(character(0), levels = classes)
   } else {
-    empty_tibble <- tibble::tibble()
+    predictions <- tibble::tibble()
     for (class_name in classes) {
-      empty_tibble[[paste0(".pred_", class_name)]] <- numeric(0)
+      predictions[[paste0(".pred_", class_name)]] <- numeric(0)
     }
-    empty_tibble
+  }
+  
+  if (return_coords) {
+    return(list(
+      predictions = predictions,
+      coords = tibble::tibble(r = numeric(0), phi_1 = numeric(0))
+    ))
+  } else {
+    return(predictions)
   }
 }
 

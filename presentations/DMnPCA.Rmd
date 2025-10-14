@@ -21,7 +21,19 @@ params:
 ```{r setup, include=FALSE}
 source(here::here("config/setup.R"))
 library(tidyverse)
+
+# {
+#   devtools::document()
+#   devtools::install(".", upgrade = "never", quiet = TRUE)
+#   cat("✓ Package installed successfully\n")
+# }
 library(qml)  # Modern qml package with dm_fit/predict interface
+# Print package version
+cat("Using qml version:", as.character(packageVersion("qml")), "\n")
+```
+
+
+```{r setup-2, include=FALSE}
 library(tidymodels)
 library(yardstick)
 library(patchwork)
@@ -273,24 +285,24 @@ for(i in seq_along(dm_model$trained_data)) {
 
 ```{r dm-visualization, echo=FALSE, fig.height=5}
 # Create visualization data by extracting polar coordinates from trained model
-# We need to transform the test data to see it in DM space
+# Use the NEW feature: return_coords = TRUE to get test data coordinates
 
-# Make predictions to get the transformation
-train_pred <- predict(dm_model, newdata = train_data)
-test_pred <- predict(dm_model, newdata = test_data)
-
-# For visualization, we'll use the trained model's polar coordinates
+# Get training data polar coordinates
 train_dm_viz <- bind_rows(
   dm_model$trained_data[[1]] %>% mutate(species = dm_model$classes[1]),
   dm_model$trained_data[[2]] %>% mutate(species = dm_model$classes[2])
 )
 
-# Note: For a complete comparison, we would need to extract test polar coordinates
-# This is a limitation we'll note in the presentation
+# NEW FEATURE: Get test data with polar coordinates
+test_pred_with_coords <- predict(dm_model, newdata = test_data, return_coords = TRUE)
 
+# Extract test coordinates and add actual class labels
+test_dm_viz <- test_pred_with_coords$coords %>%
+  bind_cols(species = test_data$species)
+
+# Training data visualization
 p1 <- train_dm_viz %>%
   ggplot(aes(r, phi_1, color = species)) +
-  # As it is polar:
   geom_point(size = 2.5, alpha = 0.7) +
   coord_polar() +
   labs(
@@ -300,15 +312,17 @@ p1 <- train_dm_viz %>%
   ) +
   theme_minimal()
 
-# For test visualization, we'll note this is a current limitation
-p2 <- ggplot() +
-  geom_text(aes(x = 0.5, y = 0.5), 
-            label = "Test data polar coordinates\n(requires model extension)", 
-            size = 4) +
+# Test data visualization - NOW POSSIBLE with return_coords = TRUE!
+p2 <- test_dm_viz %>%
+  ggplot(aes(r, phi_1, color = species)) +
+  geom_point(size = 2.5, alpha = 0.7) +
   coord_polar() +
-  labs(title = "DM: Test Data Visualization", 
-       subtitle = "(Feature under development)") +
-  theme_void()
+  labs(
+    title = "DM: Test Data in Polar Space",
+    x = "r (radial distance)", 
+    y = "φ₁ (angle)"
+  ) +
+  theme_minimal()
 
 p1 + p2 + plot_layout(guides = "collect")
 ```
@@ -316,21 +330,57 @@ p1 + p2 + plot_layout(guides = "collect")
 ## DM: Coordinate Space Properties
 
 ```{r dm-properties, echo=FALSE}
-# Analyze the polar coordinate distributions
-coord_stats <- train_dm_viz %>%
+# Analyze the polar coordinate distributions for both training and test
+train_coord_stats <- train_dm_viz %>%
   group_by(species) %>%
   summarise(
+    dataset = "Training",
     n = n(),
     r_mean = mean(r, na.rm = TRUE),
     r_sd = sd(r, na.rm = TRUE),
     phi_mean = mean(phi_1, na.rm = TRUE),
     phi_sd = sd(phi_1, na.rm = TRUE),
     .groups = "drop"
-  ) %>%
+  )
+
+test_coord_stats <- test_dm_viz %>%
+  group_by(species) %>%
+  summarise(
+    dataset = "Test",
+    n = n(),
+    r_mean = mean(r, na.rm = TRUE),
+    r_sd = sd(r, na.rm = TRUE),
+    phi_mean = mean(phi_1, na.rm = TRUE),
+    phi_sd = sd(phi_1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+coord_stats <- bind_rows(train_coord_stats, test_coord_stats) %>%
   mutate(across(where(is.numeric), ~ round(.x, 3)))
 
 coord_stats %>%
-  knitr::kable(caption = "Polar Coordinate Statistics by Species")
+  knitr::kable(caption = "Polar Coordinate Statistics by Species and Dataset")
+```
+
+## NEW FEATURE: Polar Coordinates Visualization
+
+**The `predict()` function now supports `return_coords = TRUE`:**
+
+```{r coords-feature-demo, echo=TRUE}
+# Standard prediction
+pred_standard <- predict(dm_model, test_data, type = "class")
+
+# NEW: Predictions with polar coordinates
+pred_with_coords <- predict(dm_model, test_data, return_coords = TRUE)
+
+cat("Standard prediction structure:\n")
+str(pred_standard)
+
+cat("\nWith coordinates structure:\n") 
+str(pred_with_coords)
+
+cat("\nFirst few polar coordinates:\n")
+head(pred_with_coords$coords)
 ```
 
 # Classification Performance
