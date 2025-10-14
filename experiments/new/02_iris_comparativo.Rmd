@@ -1,7 +1,7 @@
 ---
-title: "Matriz de Falcó"
+title: "Matriz del modelo DM"
 subtitle: "Iris Bífido"
-author: "José Antonio Rodríguez Gallego"
+author: "Xopre Rodríguez Gallego"
 date: "`r format(Sys.time(), '%d de %B de %Y')`"
 codification: "UTF-8"
 output:
@@ -25,7 +25,7 @@ knitr::opts_chunk$set(
 set.seed(1974)
 ```
 
-```{r falco-02-1, include=FALSE}
+```{r dm-02-1, include=FALSE}
 library(magrittr)
 
 library(tidyr)
@@ -36,13 +36,13 @@ library(tibble)
 
 # Introducción
 
-Buscamos en este documento contrastar el método de la matriz cuántica de Falcó con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos a 3 variaciones del clásico conjunto `iris`.
+Buscamos en este documento contrastar el método de la matriz cuántica del modelo DM con otros modelos clásicos de clasificación, como los árboles de decisión o el PCA. Para ello, aplicaremos estos 3 métodos a 3 variaciones del clásico conjunto `iris`.
 
 # Creación de los diferentes conjuntos de datos
 
 Empezamos preparando variaciones del conjunto `iris`, incluyendo variables que sean una combinación lineal de las variables originales y una combinación cuadrática. La idea es comprobar cómo es capaz de trabajar el modelo con estos datos concretos.
 
-```{r falco-02-2 }
+```{r dm-02-2 }
 iris_lin = iris %>% mutate(comb.lineal = 2*Sepal.Length + 3*Sepal.Width)
 cl_mean = mean(iris_lin$comb.lineal)
 

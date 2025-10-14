@@ -1,0 +1,146 @@
+---
+title: "Introduction to qml: Quantum Machine Learning"
+author: "Xopre Rodríguez Gallego"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to qml: Quantum Machine Learning}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(qml)
+library(dplyr)
+```
+
+## Overview
+
+The `qml` package provides a modern implementation of quantum matrix classification using the Density Matrix (DM) algorithm. This vignette introduces you to the main functions and demonstrates how to use them for classification tasks.
+
+## Key Features
+
+- **Quantum Matrix Classification**: Novel approach using quantum density matrices
+- **Standard R Interface**: Compatible with `predict()`, `summary()`, and other R conventions
+- **S3 Methods**: Professional implementation with proper documentation
+- **Stratified Data Splitting**: Built-in support for balanced train/test splits
+
+## Basic Usage
+
+### Fitting a Model
+
+The main function for fitting a quantum matrix classifier is `dm_fit()`. It uses a formula interface similar to other R modeling functions:
+
+```{r basic-fit}
+# Fit a model using the iris dataset
+model <- dm_fit(Species ~ ., data = iris, n_breaks = 3)
+print(model)
+```
+
+### Making Predictions
+
+Use the standard `predict()` function to make predictions:
+
+```{r predictions}
+# Class predictions
+predictions <- predict(model, newdata = iris[1:10, ])
+print(predictions)
+
+# Probability predictions
+probabilities <- predict(model, newdata = iris[1:5, ], type = "prob")
+print(probabilities)
+```
+
+### Model Summary
+
+Get detailed information about your fitted model:
+
+```{r summary}
+summary(model)
+```
+
+## Data Splitting
+
+The package includes the `testify()` function for creating stratified train/test splits:
+
+```{r data-split}
+# Create a stratified split
+iris_split <- testify(iris, "Species", test_prob = 0.3)
+
+# Check the split
+table(iris_split$test, iris_split$Species)
+
+# Separate into training and test sets
+train_data <- iris_split[!iris_split$test, ]
+test_data <- iris_split[iris_split$test, ]
+
+cat("Training set:", nrow(train_data), "observations\n")
+cat("Test set:", nrow(test_data), "observations\n")
+```
+
+## Advanced Usage
+
+### Custom Parameters
+
+You can customize the classifier behavior:
+
+```{r custom-params}
+# Use more discretization bins
+model_custom <- dm_fit(
+  Species ~ ., 
+  data = train_data,
+  n_breaks = 5,
+  verbose = 1
+)
+```
+
+### Model Evaluation
+
+```{r evaluation}
+# Fit on training data
+model_eval <- dm_fit(Species ~ ., data = train_data, n_breaks = 3)
+
+# Predict on test data
+test_predictions <- predict(model_eval, newdata = test_data)
+
+# Create confusion matrix
+conf_matrix <- table(Predicted = test_predictions, Actual = test_data$Species)
+print(conf_matrix)
+
+# Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+cat("Accuracy:", round(accuracy * 100, 2), "%\n")
+```
+
+## Algorithm Overview
+
+The quantum matrix classifier works through several key steps:
+
+1. **Data Preprocessing**: Discretizes continuous variables and creates quantum state representations
+2. **Quantum Matrix Construction**: Builds quantum density matrices from the preprocessed data
+3. **Coordinate Transformation**: Projects data onto eigenvector basis using SVD
+4. **Polar Coordinates**: Converts to polar coordinate system for classification
+5. **Kernel Density Estimation**: Uses quantum kernels for probability estimation
+6. **Classification**: Applies maximum likelihood for final predictions
+
+## Mathematical Functions
+
+The package also exports key mathematical functions that you can use directly:
+
+```{r math-functions}
+# Quantum kernel function
+K(0.1, 0.2, r = 2)
+
+# The kernel is 0 outside the unit circle
+K(1.1, 0.5, r = 2)
+```
+
+## Conclusion
+
+The `qml` package provides a modern, well-structured implementation of quantum matrix classification. Its standard R interface makes it easy to integrate into existing machine learning workflows, while the modular architecture ensures maintainability and extensibility.

@@ -19,11 +19,22 @@ params:
 
 ```{r setup, include=FALSE}
 source(here::here("config/setup.R"))
-library(tidyverse)
+# library(tidyverse)
 ## Auxiliary functions
 # load(here::here("data/presentations/DM_env.RData"))
 # namer::unname_chunks(here("presentations/DM.Rmd")) # Renaming
 # namer::name_chunks(here("presentations/DM.Rmd")) 
+```
+
+```{r package-setup, include=FALSE, warning=FALSE}
+# devtools::document()
+# {
+#   devtools::install(".", upgrade = "never", quiet = TRUE)
+#   cat("✓ Package installed successfully\n")
+# }
+library(qml)  # Load the local qml package with latest implementation
+
+library(dplyr)
 ```
 
 # Introduction
@@ -72,16 +83,7 @@ Data %<>% na.omit()
 ## Data preparation - Number of Categories
 
 ```{r DM-4, echo = FALSE}
-source(here("R/plot_n_levels.R"))
-plot_n_levels(Data)
-```
-
-## Data preparation - Factor order fix
-
-Initially, the `y` variable has levels "0" and "1". We will change the order so that "1" is the positive level, so we don't have to recode the whole model.
-
-```{r DM-5 }
-Data %<>% mutate(y = forcats::fct_relevel(y, "1", "0"))
+qml::plot_n_levels(Data)
 ```
 
 ## Data preparation - split
@@ -94,28 +96,19 @@ Data_train <- Data_split %>% rsample::training()
 Data_test <- Data_split %>% rsample::testing()
 ```
 
-## Quickfix
-
-For the DM, we still need something:
-
-```{r DM-7}
-Data <- Data_train %>% mutate(test = FALSE) %>% 
-  bind_rows(Data_test %>% mutate(test = TRUE)) %>%
-  relocate(y, test)
-```
-
 
 # The DM workflow
 
-## DM
+## DM - Modern tidymodels Interface
 
-In the `R/dm.R` file we have saved the 5 key functions required to use our model. In the following slides, we will present each of them for clarity, following the expected order of use.
+The qml package now follows tidymodels conventions with a modern `dm_fit()` and `predict()` interface. This separates model fitting from prediction and follows established R modeling patterns.
 
-```{r DM-8}
-source(here("R/dm.R")) # 6 key functions for the DM model
-```
+**Key functions:**
+- `dm_fit()`: Fits the quantum matrix classifier
+- `predict()`: Makes predictions on new data
+- Supporting functions for visualization and analysis
 
-> **Note**: `testify()` is a function we have created to facilitate the splitting of the data that is actually a duplicate of `rsample::initial_split()`, so it must be ignored, as it is kept only for compatibility.
+The new interface is more robust and follows tidymodels standards.
 
 ## DM - K (Kernel function)
 
@@ -123,11 +116,12 @@ The function `K` defines the kernel used in `f_hat_h` for smooth density estimat
 
 **Usage example:**
 
-```{r DM-9}
+```{r DM-9, warning=FALSE}
+library(ggplot2)
 # Kernel function at a vector point c(0.1, 0.2)
 v <- (-110:110)/100
 expand.grid(x = v, y = v) %>%
-  mutate(z = pmap_dbl(select(., x, y), ~ K(c(...), r = 2))) %>%
+  mutate(z = purrr::pmap_dbl(select(., x, y), ~ K(c(...), r = 2))) %>%
   ggplot(aes(x = x, y = y, z = z)) +
   geom_raster(aes(fill = z)) +
   scale_fill_viridis_c() +
@@ -147,122 +141,145 @@ K(x) =
 
 where \(r\) is the dimension (default 2), and \(\|x\|^2 = \sum_i x_i^2\).
 
-## DM - get_rho_d
+## DM - Model Fitting
 
-The `get_rho_d` function processes a dataset to transform it into quantum density matrices that represent class covariances in a quantum-inspired manner.
+The `dm_fit()` function fits the quantum matrix classifier using tidymodels conventions. It processes the dataset, creates quantum density matrices, and stores all necessary information for prediction.
 
 **Usage example:**
 
 ```{r DM-10}
-rho_d_info <- get_rho_d(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
-rho_d <- rho_d_info$rho_d
+# Fit the quantum matrix classifier
+dm_model <- dm_fit(y ~ ., data = Data_train, n_breaks = 3)
+print(dm_model)
 ```
+
+## DM - Model fitting
+
+**Key features:**
+- Follows R modeling conventions with formula interface
+- Stores preprocessing parameters for consistent predictions
+- Returns a fitted model object with summary information
 
 **Mathematical concept:**
 
-\[
-\rho_d = \frac{X X^\top}{\text{trace}(X X^\top)}
-\]
+The quantum density matrix \(\rho_d = \frac{X X^\top}{\text{trace}(X X^\top)}\) represents class covariances in a quantum-inspired manner.
 
-where \(X\) is a matrix constructed from the data encoding class information.
+## DM - Predictions
 
-## DM - get_C_tilde_polar
+The `predict()` method makes predictions using the fitted quantum matrix classifier. It supports both class predictions and probability estimates.
 
-The function `get_C_tilde_polar` extracts surrogate training and testing sets in polar coordinates from the quantum density matrices, representing data in a reduced feature space suitable for classification.
+## DM - Predictions
 
-**Usage example:**
-
-```{r DM-11}
-C_tilde_polar <- get_C_tilde_polar(Data, objective_var = "y", n_breaks = 3, verbose = 0, test_var = "test")
+```{r DM-11, warning=FALSE}
+# Class predictions
+class_pred <- predict(dm_model, newdata = Data_test)
+table(class_pred)
 ```
 
-## DM - get_C_tilde_polar
+## DM - Predictions
 
-```{r DM-12}
-(D_tilde_train <- C_tilde_polar$train)
+```{r DM-12, warning=FALSE}
+# Probability predictions  
+prob_pred <- predict(dm_model, newdata = Data_test, type = "prob")
+head(prob_pred)
 ```
 
-## DM - get_C_tilde_polar
+## DM - Predictions
 
-```{r DM-13}
-(D_tilde_test <- C_tilde_polar$test)
-```
+**Key features:**
+- Standard `predict()` interface following R conventions
+- Supports `type = "class"` and `type = "prob"`
+- Uses stored preprocessing parameters for consistent transformation
+- Returns standard factor/tibble formats
 
 **Coordinate conversion:**
 
-\[
-r = \sqrt{V_1^2 + V_2^2}, \quad \phi_1 = \tan^{-1}\left(\frac{V_2}{V_1}\right)
-\]
+Internally converts to polar coordinates: \(r = \sqrt{V_1^2 + V_2^2}, \phi_1 = \tan^{-1}(V_2/V_1)\)
 
-where \(V_1, V_2\) are coordinates in reduced dimensions.
+## DM - Model Summary and Diagnostics
 
-## DM - f_hat_h
-
-The function `f_hat_h` estimates the probability density of a vector \( x \) belonging to a specified class \( e_y \), using a kernel density estimation with a bandwidth window \( h \). It requires a `D_tilde`, which can be obtained as an output of `get_C_tilde_polar`.
+The fitted model provides comprehensive information about the training process and model characteristics.
 
 **Usage example:**
 
 ```{r DM-14}
-# Given the training data in D_tilde, and a vector x for which to estimate probability for class 1:
-x <- c(v_1 = 0.01, v_2 = 0.02)
-class <- 1
-(probability <- f_hat_h(D_tilde_train, x, clase = class, h_window = 0.1))
+# Model summary
+summary(dm_model)
 ```
 
-**Mathematical definition:**
+**Available information:**
+- Training data statistics
+- Class distributions in polar coordinates  
+- Preprocessing parameters
+- Model performance metrics
 
-\[
-\hat{f}_h(x|e_y) = \sum_{\tilde{X} \in \tilde{\chi}_{r, e_y}} \frac{1}{n h^r} K\left(\frac{x - \tilde{X}_r}{h}\right)
-\]
+**Mathematical foundation:**
 
-where:
-- \( \tilde{\chi}_{r, e_y} \) are the surrogate training vectors for class \( e_y \),
-- \( n \) is the sample size,
-- \( h \) is the window bandwidth,
-- \( K \) is the kernel function.
+Kernel density estimation: \(\hat{f}_h(x|e_y) = \sum_{\tilde{X} \in \tilde{\chi}_{r, e_y}} \frac{1}{n h^r} K\left(\frac{x - \tilde{X}_r}{h}\right)\)
 
-## DM - dm (Main function)
+where \( \tilde{\chi}_{r, e_y} \) are the surrogate training vectors for class \( e_y \).
 
-Finally, the `dm` function is the main driver that operates the entire quantum matrix method pipeline on the given Data.
+## DM - Complete Workflow
 
-**Usage example:**
+The complete quantum matrix workflow now follows modern R practices with clean separation of concerns.
+
+**Complete usage example:**
 
 ```{r DM-15, message=FALSE, warning=FALSE}
-(result <- dm(Data, n_breaks = 3, objective_var = "y", verbose = 0, test_var = "test"))
+# Fit the model
+dm_model <- dm_fit(y ~ ., data = Data_train, n_breaks = 3)
+
+# Make predictions
+predictions <- predict(dm_model, newdata = Data_test)
+probabilities <- predict(dm_model, newdata = Data_test, type = "prob")
+
+# Combine results for analysis
+result <- Data_test %>%
+  mutate(
+    .pred = predictions,
+    .truth = y
+  ) %>%
+  bind_cols(probabilities) %>%
+  # Add polar coordinates for visualization (if needed)
+  select(.pred, .truth, everything())
+
+head(result)
 ```
 
-It internally calls all other functions to prepare data, estimate density matrices, derive surrogate datasets, and return classification results.
+This approach is more robust, follows tidymodels conventions, and separates model fitting from prediction.
 
 # Visualization
 
 ## Visualization
 
-Our result is a tibble with the $\rho, \phi$ coordinates values, accompanied by the predicted and true class for each sample.
+Our result is a tibble with predictions, probabilities, and true classes. For visualization purposes, we can extract the polar coordinates if needed.
 
 ```{r DM-16, echo=TRUE}
 result %>% head
-# Rows: 67
-# Columns: 4
-# $ r      <dbl> 0.7630426, 0.8602825, 0.7630426, 0.8003905, 0.8602825, 0.8640578, 0.8640578, 0.8003905,…
-# $ phi_1  <dbl> -0.5925971, -0.8019886, -0.5925971, -0.5192027, -0.8019886, -0.7084914, -0.7084914, -0.…
-# $ .pred  <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, …
-# $ .truth <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, …
 ```
 
-## Visualization - Plot
+**Key advantages of the new approach:**
+- Clean separation between model fitting and prediction
+- Follows established R modeling conventions
+- More robust error handling and validation
+- Consistent with tidymodels ecosystem
+- Better integration with other R packages
+
+## Visualization - Classification Results
 
 ```{r DM-17, echo=FALSE}
+# Simple visualization of classification results
 result %>%
-  ggplot(aes(x = r, y = phi_1, color = .truth, shape = .pred)) +
-  geom_point(size = 3, alpha = 0.8) +
+  ggplot(aes(x = .pred, fill = .truth)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
   labs(
-    title = "Classification Example",
-    x = "",
-    y = ""
+    title = "Classification Results",
+    x = "Predicted Class", 
+    y = "Count",
+    fill = "True Class"
   ) +
-  coord_polar(theta = "y", start = 0) +
-  theme(axis.text.x = element_blank(),  # Remove x-axis text
-        axis.text.y = element_blank())    # Move legend to the bottom for better visibility
+  theme_minimal() +
+  theme(legend.position = "bottom")
 ```
 
 ## Metrics
@@ -273,58 +290,49 @@ my_metrics = metric_set(bal_accuracy, sensitivity, specificity, ppv, npv, accura
 my_metrics(result, truth = .truth, estimate = .pred)
 ```
 
-## Density functions visualization
+## Probability Analysis
 
-Podemos representar las funciones de densidad de probabilidad para cada una de las clases, para cada uno de los grupos considerados:
+We can analyze the prediction probabilities to understand model confidence:
 
 ```{r DM-19, echo=FALSE}
-library(ks)
-plot_class = function(class_value, new_title, show_plot = TRUE, save_dir = NULL) {
-  # class_value = 0
-  data <- result %>% 
-  bind_rows() %>% 
-  filter(.truth == class_value) # Filter for the class
-
-  # KDE estimation
-  H <- Hpi(x = data[, c("r", "phi_1")]) # Bandwidth matrix estimation
-  fhat <- kde(x = data[, c("r", "phi_1")], H = H, gridsize = c(100, 100)) # KDE with ks
-  
-  # Convert the KDE output to a data frame
-  density_data <- expand.grid(
-    r = fhat$eval.points[[1]], 
-    phi_1 = fhat$eval.points[[2]]
-  ) %>%
-    mutate(density = as.vector(fhat$estimate))
-  
-  # Plot the KDE-based heatmap
-  kde_plot <- ggplot(density_data, aes(x = r, y = phi_1, fill = density)) +
-    geom_tile() +
-    labs(
-      title = new_title,
-      subtitle = "Kernel Density Estimate",
-      x = expression(r),
-      y = expression(phi[1])
-    ) +
-    scale_fill_viridis_c() + # Add a visually appealing color scale
-    theme_void() +
-    theme(legend.position = "none") # Remove the legend
-  
-  if (show_plot) {
-    print(kde_plot)
-  }
-  
-  if (!is.null(save_dir)) {
-    ggsave(filename = paste0(save_dir, "/kde_plot_", class_value, ".png"), plot = kde_plot)
-  }
-}
+# Analyze prediction probabilities
+result %>%
+  select(starts_with(".pred_"), .truth) %>%
+  tidyr::pivot_longer(cols = starts_with(".pred_"), 
+               names_to = "predicted_class", 
+               values_to = "probability") %>%
+  mutate(predicted_class = stringr::str_remove(predicted_class, ".pred_")) %>%
+  ggplot(aes(x = probability, fill = predicted_class)) +
+  # geom_histogram(alpha = 0.7, bins = 20) +
+  geom_density(alpha = 0.7, bins = 20) +
+  facet_wrap(~.truth, labeller = label_both) +
+  labs(
+    title = "Prediction Probability Distribution by True Class",
+    x = "Predicted Probability",
+    y = "Count",
+    fill = "Predicted Class"
+  ) +
+  theme_minimal()
 ```
 
-```{r DM-20 }
-plot_class(1, new_title = "(a) Not diagnosed", show_plot = TRUE)
-```
+## Model Performance Summary
 
-```{r DM-21 }
-plot_class(2, new_title = "(b) Diagnosed", show_plot = TRUE)
+```{r DM-20, echo=FALSE}
+# Create a summary of model performance
+performance_summary <- result %>%
+  summarise(
+    total_predictions = n(),
+    correct_predictions = sum(.pred == .truth),
+    accuracy = correct_predictions / total_predictions,
+    class_0_precision = sum(.pred == "0" & .truth == "0") / sum(.pred == "0"),
+    class_1_precision = sum(.pred == "1" & .truth == "1") / sum(.pred == "1"),
+    .groups = "drop"
+  )
+
+performance_summary %>%
+  tidyr::pivot_longer(everything(), names_to = "metric", values_to = "value") %>%
+  mutate(value = round(value, 3)) %>%
+  knitr::kable(caption = "Model Performance Summary")
 ```
 
 ## Confusion matrix - Train vs Test
@@ -337,6 +345,16 @@ result %>% select(.pred, .truth) %>% table()
 
 # Notes
 
+## Key Improvements
+
+**Modern Implementation Benefits:**
+- **Tidymodels Integration**: Follows established R modeling conventions
+- **Robust Error Handling**: Better validation and informative error messages  
+- **Consistent Interface**: Standard `fit()` and `predict()` workflow
+- **Reproducible Results**: Stored preprocessing parameters ensure consistency
+- **Better Documentation**: Comprehensive help files and examples
+
 ## ML
 
 - On `DMnML.Rmd` an extended DM model is included for **bootstrap resampling**.
+- The new implementation is more suitable for integration with tidymodels workflows.

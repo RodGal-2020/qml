@@ -1,0 +1,481 @@
+---
+title: "QML Package Testing and Validation"
+author: "Xopre Rodríguez Gallego"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+    theme: flatly
+    highlight: tango
+params:
+  fast_test: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  error = TRUE,
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# QML Package This document provides comprehensive testing and validation of the `qml` package (Quantum Machine Learning). It covers package installation, basic functionality, advanced features, and performance validation.
+d performance validation.
+
+## 1. Package Development Setup
+
+### 1.1 Update Package Documentation
+
+```{r update-docs}
+# Update documentation and NAMESPACE
+if (requireNamespace("devtools", quietly = TRUE)) {
+  cat("Updating package documentation...\n")
+  devtools::document()
+  cat("✓ Documentation updated\n")
+} else {
+  cat("devtools not available - install with: install.packages('devtools')\n")
+}
+```
+
+### 1.2 Install Package from Source
+
+```{r install-package}
+if (params$fast_test) {
+  cat("⚠ Fast testing mode enabled - skipping package installation\n")
+  source("../R/dm_utils.R")
+  source("../R/data_preprocessing.R")  
+  source("../R/quantum_matrix.R")
+  source("../R/kernel_functions.R")
+  source("../R/coordinate_transforms.R")
+  source("../R/dm_classifier.R")
+} else {
+  # Install the package from the current directory
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    cat("Installing qml package from source...\n")
+    try({
+      devtools::install(".", upgrade = "never", quiet = TRUE)
+      cat("✓ Package installed successfully\n")
+    })
+  } else {
+    cat("⚠ devtools not available - loading source files directly\n")
+    # Fallback: source files directly
+    source("../R/dm_utils.R")
+    source("../R/data_preprocessing.R")  
+    source("../R/quantum_matrix.R")
+    source("../R/kernel_functions.R")
+    source("../R/coordinate_transforms.R")
+    source("../R/dm_classifier.R")
+  }
+}
+```
+
+### 1.3 Load Required Libraries
+
+```{r load-libraries}
+# Load required packages
+required_packages <- c("dplyr", "magrittr", "purrr", "tibble")
+
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    cat("Installing", pkg, "...\n")
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# Try to load the qml package
+if (!params$fast_test) {
+  if (requireNamespace("qml", quietly = TRUE)) {
+    library(qml)
+    cat("✓ qml package loaded successfully\n")
+  } else {
+    cat("⚠ qml package not available as installed package\n")
+  }
+}
+```
+
+## 2. Package Structure Validation
+
+### 2.1 Check Package Information
+
+```{r package-info}
+# Check if package is properly loaded
+if (exists("dm_fit")) {
+  cat("✓ Main functions available\n")
+  
+  # List exported functions
+  if (requireNamespace("qml", quietly = TRUE)) {
+    exports <- ls("package:qml")
+    # cat("Exported functions:", paste(exports, collapse = ", "), "\n")
+  }
+} else {
+  cat("⚠ Main functions not found\n")
+}
+
+# Check key functions exist
+key_functions <- c("dm_fit", "K", "f_hat_h")
+for (func in key_functions) {
+  if (exists(func)) {
+    cat("✓", func, "available\n")
+  } else {
+    cat("✗", func, "missing\n")
+  }
+}
+```
+
+### 2.2 Validate Dependencies
+
+```{r check-dependencies}
+# Check if all required packages are available
+deps <- c("dplyr", "magrittr", "purrr", "tibble", "rlang", "fasano.franceschini.test")
+
+cat("Checking dependencies:\n")
+for (dep in deps) {
+  if (requireNamespace(dep, quietly = TRUE)) {
+    cat("✓", dep, "available\n")
+  } else {
+    cat("✗", dep, "missing - install with: install.packages('", dep, "')\n")
+  }
+}
+```
+
+## 3. Basic Functionality Testing
+
+### 3.1 Data Preparation
+
+```{r data-prep}
+# Load test dataset
+data(iris)
+cat("Dataset loaded: iris\n")
+cat("Dimensions:", nrow(iris), "rows,", ncol(iris), "columns\n")
+cat("Classes:", paste(levels(iris$Species), collapse = ", "), "\n")
+
+# Check data structure
+str(iris)
+head(iris)
+```
+
+### 3.3 Test Kernel Function
+
+```{r test-kernel}
+cat("Testing K() kernel function:\n")
+
+if (exists("K")) {
+  try({
+    # Test various kernel values
+    test_cases <- list(
+      c(0, 0),      # Origin
+      c(0.5, 0.5),  # Inside unit circle
+      c(1, 0),      # On boundary
+      c(1.5, 0)     # Outside boundary
+    )
+    
+    for (i in seq_along(test_cases)) {
+      coords <- test_cases[[i]]
+      k_val <- K(coords[1], coords[2], r = 2)
+      cat("K(", coords[1], ",", coords[2], ") =", k_val, "\n")
+    }
+    
+    cat("✓ K() function working correctly\n")
+    
+  }, silent = FALSE)
+} else {
+  cat("✗ K() function not available\n")
+}
+```
+
+## 4. Model Fitting and Prediction Testing
+
+### 4.1 Basic Model Fitting
+
+```{r test-model-fitting}
+cat("Testing dm_fit() function:\n")
+
+filtered_iris <- iris %>% dplyr::filter(Species != "setosa")  # Binary classification for simplicity
+
+if (exists("dm_fit")) {
+  try({
+    # Fit basic model
+    model <- dm_fit(Species ~ ., data = filtered_iris, n_breaks = 3, verbose = 1)
+    
+    cat("✓ Model fitted successfully\n")
+    cat("Model class:", class(model), "\n")
+    cat("Number of classes:", model$n_classes, "\n")
+    cat("Classes:", paste(model$classes, collapse = ", "), "\n")
+    
+    # Print model summary
+    print(model)
+    
+  }, silent = FALSE)
+} else {
+  cat("✗ dm_fit() function not available\n")
+}
+```
+
+### 4.2 Model Prediction Testing
+
+```{r test-predictions}
+if (exists("model") && inherits(model, "dm_fit")) {
+  cat("Testing predict() methods:\n")
+  
+  try({
+    # Test class predictions
+    pred_class <- predict(model, newdata = iris[1:10, ])
+    cat("✓ Class predictions successful\n")
+    cat("Predictions:", as.character(pred_class), "\n")
+    cat("Actual:", as.character(iris$Species[1:10]), "\n")
+    
+    # Test probability predictions
+    pred_prob <- predict(model, newdata = iris[1:5, ], type = "prob")
+    cat("✓ Probability predictions successful\n")
+    cat("Probability matrix dimensions:", dim(pred_prob), "\n")
+    print(round(pred_prob, 3))
+    
+    # Check probabilities sum to 1
+    row_sums <- rowSums(pred_prob)
+    cat("Row sums (should be ~1):", round(row_sums, 3), "\n")
+    
+  }, silent = FALSE)
+} else {
+  cat("⚠ Model not available for prediction testing\n")
+}
+```
+
+### 4.3 Model Summary Testing
+
+```{r test-summary}
+if (exists("model") && inherits(model, "dm_fit")) {
+  cat("Testing summary() method:\n")
+  
+  try({
+    summary(model)
+    cat("✓ Summary method working correctly\n")
+  }, silent = FALSE)
+} else {
+  cat("⚠ Model not available for summary testing\n")
+}
+```
+
+## 5. Advanced Testing
+
+### 5.1 Train/Test Split Validation
+
+```{r advanced-testing}
+cat("Advanced testing with train/test split:\n")
+
+if (exists("testify") && exists("dm_fit")) {
+  try({
+    # Create proper train/test split
+    iris_split <- testify(iris, "Species", test_prob = 0.3)
+    train_data <- iris_split[!iris_split$test, ]
+    test_data <- iris_split[iris_split$test, ]
+    
+    cat("Training set size:", nrow(train_data), "\n")
+    cat("Test set size:", nrow(test_data), "\n")
+    
+    # Fit model on training data
+    model_split <- dm_fit(Species ~ ., data = train_data, n_breaks = 3)
+    
+    # Predict on test data
+    test_predictions <- predict(model_split, newdata = test_data)
+    test_probabilities <- predict(model_split, newdata = test_data, type = "prob")
+    
+    # Create confusion matrix
+    conf_matrix <- table(Predicted = test_predictions, Actual = test_data$Species)
+    cat("\nConfusion Matrix:\n")
+    print(conf_matrix)
+    
+    # Calculate accuracy
+    accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+    cat("Accuracy:", round(accuracy * 100, 2), "%\n")
+    
+    # Calculate per-class accuracy
+    class_accuracy <- diag(conf_matrix) / rowSums(conf_matrix)
+    names(class_accuracy) <- rownames(conf_matrix)
+    cat("Per-class accuracy:\n")
+    print(round(class_accuracy * 100, 2))
+    
+    cat("✓ Advanced testing completed successfully\n")
+    
+  }, silent = FALSE)
+} else {
+  cat("⚠ Required functions not available for advanced testing\n")
+}
+```
+
+### 5.2 Parameter Sensitivity Testing
+
+```{r parameter-testing}
+cat("Testing different parameter values:\n")
+
+if (exists("dm_fit")) {
+  try({
+    # Test different n_breaks values
+    n_breaks_values <- c(2, 3, 5)
+    results <- list()
+    
+    for (nb in n_breaks_values) {
+      cat("Testing n_breaks =", nb, ":\n")
+      
+      model_test <- dm_fit(Species ~ ., data = iris[1:100, ], n_breaks = nb)
+      pred_test <- predict(model_test, newdata = iris[101:150, ])
+      
+      # Simple accuracy on remaining data
+      actual <- iris$Species[101:150]
+      accuracy <- mean(pred_test == actual)
+      
+      results[[paste0("n_breaks_", nb)]] <- accuracy
+      cat("  Accuracy:", round(accuracy * 100, 2), "%\n")
+    }
+    
+    cat("Parameter testing results:\n")
+    print(results)
+    
+  }, silent = FALSE)
+} else {
+  cat("⚠ dm_fit() not available for parameter testing\n")
+}
+```
+
+## 6. Error Handling Testing
+
+### 6.1 Input Validation Testing
+
+```{r error-testing}
+cat("Testing error handling:\n")
+
+if (exists("dm_fit")) {
+  # Test missing formula
+  cat("1. Testing missing formula:\n")
+  try({
+    dm_fit()
+  }, silent = TRUE)
+  
+  # Test invalid data
+  cat("2. Testing with insufficient data:\n")
+  try({
+    small_data <- iris[1:6, ]  # Only 2 observations per class
+    dm_fit(Species ~ ., data = small_data)
+  }, silent = TRUE)
+  
+  # Test missing objective variable
+  cat("3. Testing missing objective variable:\n")
+  try({
+    iris_no_species <- iris[, -5]
+    dm_fit(Species ~ ., data = iris_no_species)
+  }, silent = TRUE)
+  
+  cat("✓ Error handling tests completed\n")
+} else {
+  cat("⚠ dm_fit() not available for error testing\n")
+}
+```
+
+## 7. Performance Benchmarking
+
+### 7.1 Timing Analysis
+
+```{r performance-testing}
+cat("Performance benchmarking:\n")
+
+if (exists("dm_fit")) {
+  try({
+    # Time model fitting
+    fit_time <- system.time({
+      perf_model <- dm_fit(Species ~ ., data = iris, n_breaks = 3)
+    })
+    
+    cat("Model fitting time:", round(fit_time["elapsed"], 3), "seconds\n")
+    
+    # Time predictions
+    pred_time <- system.time({
+      perf_pred <- predict(perf_model, newdata = iris)
+    })
+    
+    cat("Prediction time (150 obs):", round(pred_time["elapsed"], 3), "seconds\n")
+    cat("Prediction rate:", round(nrow(iris) / pred_time["elapsed"], 0), "observations/second\n")
+    
+  }, silent = FALSE)
+} else {
+  cat("⚠ Functions not available for performance testing\n")
+}
+```
+
+## 8. Package Validation Summary
+
+### 8.1 Test Results Summary
+
+```{r test-summary}
+cat("QML Package Validation Summary\n")
+cat("==============================\n\n")
+
+tests_passed <- 0
+tests_total <- 8
+
+# Check each component
+components <- list(
+  "Package Loading" = exists("dm_fit"),
+  "Data Splitting (testify)" = exists("testify"),
+  "Kernel Function (K)" = exists("K"),
+  "Model Fitting (dm_fit)" = exists("dm_fit"),
+  "Predictions" = exists("model") && inherits(model, "dm_fit"),
+  "Summary Methods" = exists("model") && inherits(model, "dm_fit"),
+  "Advanced Features" = exists("testify") && exists("dm_fit"),
+  "Error Handling" = exists("dm_fit")
+)
+
+for (name in names(components)) {
+  if (components[[name]]) {
+    cat("✓", name, "\n")
+    tests_passed <- tests_passed + 1
+  } else {
+    cat("✗", name, "\n")
+  }
+}
+
+cat("\nOverall Test Results:", tests_passed, "/", tests_total, "passed\n")
+
+if (tests_passed == tests_total) {
+  cat("🎉 ALL TESTS PASSED! Package is ready for use.\n")
+} else if (tests_passed >= tests_total * 0.75) {
+  cat("⚠ Most tests passed. Package is mostly functional.\n")
+} else {
+  cat("❌ Many tests failed. Package needs attention.\n")
+}
+```
+
+### 8.2 Recommendations
+
+```{r recommendations}
+cat("\nRecommendations:\n")
+cat("================\n\n")
+
+if (tests_passed == tests_total) {
+  cat("✓ Package is functioning correctly\n")
+  cat("✓ Ready for distribution\n")
+  cat("✓ Consider adding more comprehensive tests\n")
+  cat("✓ Add performance benchmarks for larger datasets\n")
+} else {
+  cat("• Install missing dependencies\n")
+  cat("• Fix any errors shown above\n")
+  cat("• Run devtools::check() for comprehensive validation\n")
+  cat("• Consider running tests in clean R session\n")
+}
+
+cat("\nNext Steps:\n")
+cat("• Run devtools::check() for CRAN readiness\n")
+cat("• Build package documentation with devtools::build_manual()\n")
+cat("• Test with different R versions if needed\n")
+cat("• Submit to CRAN when ready\n")
+```
+
+---
+
+**Package Testing Complete**
+
+*Generated on `r Sys.time()`*

@@ -1,7 +1,7 @@
 ---
 title: "Matriz de Falcó"
 subtitle: "Clima Apacible"
-author: "José Antonio Rodríguez Gallego"
+author: "Xopre Rodríguez Gallego"
 date: "`r format(Sys.time(), '%d de %B de %Y')`"
 codification: "UTF-8"
 output:

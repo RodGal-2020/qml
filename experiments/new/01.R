@@ -1,6 +1,6 @@
 ################################################################################
 # RESUMEN
-# En este documento logramos aplicar la matriz de Falcó, por primera vez
+# En este documento logramos aplicar la matriz del modelo DM, por primera vez
 ################################################################################
 ################################################################################
 
