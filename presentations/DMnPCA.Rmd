@@ -191,6 +191,7 @@ print(pca_variance)
 ```{r pca-visualization, echo=FALSE, fig.height=5}
 # Visualize PCA transformation
 p1 <- train_pca %>%
+  bind_cols(species = train_data$species) %>% 
   ggplot(aes(PC1, PC2, color = species)) +
   geom_point(size = 2.5, alpha = 0.7) +
   labs(
@@ -201,6 +202,7 @@ p1 <- train_pca %>%
   theme_minimal()
 
 p2 <- test_pca %>%
+  bind_cols(species = test_data$species) %>% 
   ggplot(aes(PC1, PC2, color = species)) +
   geom_point(size = 2.5, alpha = 0.7) +
   labs(
@@ -254,7 +256,11 @@ dm_model <- dm_fit(species ~ ., data = train_data, n_breaks = params$n_breaks)
 
 # Get model summary
 print(dm_model)
+```
 
+## DM Implementation
+
+```{r dm-analysis}
 # Extract training data characteristics
 cat("\nTraining data characteristics:")
 for(i in seq_along(dm_model$trained_data)) {
@@ -284,7 +290,9 @@ train_dm_viz <- bind_rows(
 
 p1 <- train_dm_viz %>%
   ggplot(aes(r, phi_1, color = species)) +
+  # As it is polar:
   geom_point(size = 2.5, alpha = 0.7) +
+  coord_polar() +
   labs(
     title = "DM: Training Data in Polar Space",
     x = "r (radial distance)",
@@ -297,6 +305,7 @@ p2 <- ggplot() +
   geom_text(aes(x = 0.5, y = 0.5), 
             label = "Test data polar coordinates\n(requires model extension)", 
             size = 4) +
+  coord_polar() +
   labs(title = "DM: Test Data Visualization", 
        subtitle = "(Feature under development)") +
   theme_void()
@@ -342,7 +351,7 @@ classification_metrics <- metric_set(
 # Fit logistic regression on PCA-transformed data
 pca_model <- logistic_reg() %>%
   set_engine("glm") %>%
-  fit(species ~ ., data = train_pca)
+  fit(species ~ ., data = train_pca %>% bind_cols(species = train_data$species))
 
 # Make predictions
 pca_pred <- predict(pca_model, test_pca, type = "class")
@@ -350,6 +359,7 @@ pca_prob <- predict(pca_model, test_pca, type = "prob")
 
 # Calculate metrics
 pca_results <- test_pca %>%
+  bind_cols(species = test_data$species) %>%
   select(species) %>%
   bind_cols(pca_pred, pca_prob)
 
@@ -366,8 +376,8 @@ dm_prob <- predict(dm_model, test_data, type = "prob")
 # Calculate metrics
 dm_results <- test_data %>%
   select(species) %>%
-  bind_cols(dm_pred) %>%
-  bind_cols(dm_prob)
+  bind_cols(.pred_class = dm_pred) %>%
+  bind_cols(.pred = dm_prob)
 
 dm_metrics <- classification_metrics(dm_results, truth = species, estimate = .pred_class, .pred_Adelie)
 ```
