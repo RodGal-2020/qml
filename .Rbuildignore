@@ -1,0 +1,17 @@
+^qml\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^LICENSE\.md$
+^\.github$
+^\.travis\.yml$
+^appveyor\.yml$
+^codecov\.yml$
+^test_qml_example\.R$
+^simple_test\.R$
+^experiments$
+^figs$
+^data$
+^presentations$
+^config$
+^renv$
+^renv\.lock$

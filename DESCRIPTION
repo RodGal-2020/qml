@@ -1,0 +1,39 @@
+Package: qml
+Title: Quantum Machine Learning for Classification
+Version: 0.2.0
+Authors@R: 
+    person("Xopre", "Rodríguez Gallego", , "rodgal.2020@example.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-5825-2724"))
+Description: A modern implementation of quantum machine learning classification using the 
+    Density Matrix (DM) algorithm. This package provides quantum-inspired machine 
+    learning methods for classification tasks, implementing the DM model 
+    with quantum density matrices. Features include standard R modeling interface 
+    with predict() and summary() methods, modular architecture for maintainability, 
+    and compatibility with tidymodels ecosystem including rsample for data splitting.
+License: MIT + file LICENSE
+URL: https://github.com/RodGal-2020/qml
+BugReports: https://github.com/RodGal-2020/qml/issues
+Depends: 
+    R (>= 4.1.0)
+Imports: 
+    dplyr (>= 1.0.0),
+    magrittr (>= 2.0.0),
+    purrr (>= 0.3.0),
+    tibble (>= 3.0.0),
+    tidyr (>= 1.0.0),
+    rlang (>= 1.0.0),
+    fasano.franceschini.test (>= 1.0.0),
+    lifecycle (>= 1.0.0),
+    rsample (>= 1.0.0)
+Suggests: 
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    yardstick (>= 1.0.0),
+    covr
+VignetteBuilder: knitr
+Encoding: UTF-8
+Language: en-US
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Config/testthat/edition: 3
