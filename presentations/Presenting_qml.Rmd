@@ -38,7 +38,8 @@ set.seed(params$random_seed)
 The `qml` package brings quantum-inspired classification methods to the R ecosystem, implementing the **Density Matrix (DM)** approach for binary classification problems.
 
 **Key Features:**
-- **Tidymodels integration** - follows modern R modeling conventions
+
+-**Tidymodels integration** - follows modern R modeling conventions
 - **Quantum-inspired approach** - uses density matrices and polar coordinates
 - **Binary classification** - specialized for two-class problems
 - **Comprehensive toolkit** - fit, predict, visualize, and evaluate
@@ -48,12 +49,14 @@ The `qml` package brings quantum-inspired classification methods to the R ecosys
 **Traditional vs Quantum-Inspired Approach:**
 
 **Classical Methods (PCA, SVM, etc.):**
-- Linear or kernel-based transformations
+
+-Linear or kernel-based transformations
 - Euclidean distance metrics
 - Standard statistical assumptions
 
 **qml's Quantum Approach:**
-- Creates **quantum density matrices** from data
+
+-Creates **quantum density matrices** from data
 - Transforms to **polar coordinates** (r, φ)
 - Uses **SVD decomposition** for dimensionality reduction
 - **Kernel density estimation** in transformed space
@@ -64,13 +67,15 @@ $$\rho_d = \frac{XX^T}{\text{trace}(XX^T)} \rightarrow \text{SVD} \rightarrow (r
 ## Package Philosophy
 
 **Design Principles:**
-- **Tidymodels compatibility** - `dm_fit()` and `predict()` workflow
+
+-**Tidymodels compatibility** - `dm_fit()` and `predict()` workflow
 - **Reproducible research** - stored preprocessing parameters
 - **User-friendly** - intuitive function names and documentation
 - **Extensible** - modular design for future quantum methods
 
 **Target Applications:**
-- Binary classification problems
+
+-Binary classification problems
 - Non-linear data patterns
 - Mixed data types (continuous + categorical)
 - Research in quantum-inspired ML
@@ -80,17 +85,20 @@ $$\rho_d = \frac{XX^T}{\text{trace}(XX^T)} \rightarrow \text{SVD} \rightarrow (r
 ## Core Function Overview
 
 **Main Workflow Functions:**
-- `dm_fit()` - Fit quantum matrix classifier
+
+-`dm_fit()` - Fit quantum matrix classifier
 - `predict.dm_fit()` - Make predictions with optional coordinates
 - `summary.dm_fit()` - Model summaries and diagnostics
 
 **Supporting Functions:**
-- `K()` - Kernel function for density estimation
+
+-`K()` - Kernel function for density estimation
 - `plot_n_levels()` - Visualize data characteristics
 - Coordinate transformation utilities
 
 **Quality Assurance:**
-- Comprehensive input validation
+
+-Comprehensive input validation
 - Informative error messages
 - Built-in diagnostics and warnings
 
@@ -104,8 +112,10 @@ dm_fit(formula, data, n_breaks = 3, verbose = 0, ...)
 ```
 
 **Parameters:**
-- `formula` - Model specification (e.g., `species ~ .`) **Binary targets only**
-- `data` - Training dataset 
+
+-`formula` - Model specification (e.g., `species ~ .`) **Binary targets only**
+
+-`data` - Training dataset 
 - `n_breaks` - Number of discretization bins for continuous variables
 - `verbose` - Verbosity level (0 = silent, 1+ = detailed output)
 
@@ -162,7 +172,8 @@ predict(object, newdata, type = c("class", "prob"), return_coords = FALSE, ...)
 ```
 
 **Parameters:**
-- `object` - Fitted model from `dm_fit()`
+
+-`object` - Fitted model from `dm_fit()`
 - `newdata` - New observations to predict
 - `type` - "class" for predicted classes, "prob" for probabilities
 - `return_coords` - **NEW FEATURE**: If TRUE, returns polar coordinates
@@ -247,7 +258,8 @@ plot_n_levels(train_data)
 ```
 
 **Helps with:**
-- Understanding data types and distributions
+
+-Understanding data types and distributions
 - Choosing appropriate `n_breaks` parameter
 - Identifying potential preprocessing needs
 
@@ -418,7 +430,8 @@ cat("With preprocessing accuracy:", accuracy_vec(iris_test$Species, workflow_pre
 ```
 
 **Key Integration Points:**
-- Compatible with `recipes` for preprocessing
+
+-Compatible with `recipes` for preprocessing
 - Follows `fit()` and `predict()` conventions
 - Returns standard R objects (factors, tibbles)
 - Future: Full `parsnip` model specification support
@@ -553,7 +566,8 @@ method_comparison %>%
 ```
 
 **Key Observations:**
-- qml performs competitively with classical methods
+
+-qml performs competitively with classical methods
 - Particularly effective with non-linear patterns
 - Benefits from quantum-inspired coordinate transformation
 
@@ -562,13 +576,15 @@ method_comparison %>%
 ## When to Use qml
 
 **Ideal Use Cases:**
-- **Binary classification problems** with complex decision boundaries
+
+-**Binary classification problems** with complex decision boundaries
 - **Mixed data types** (continuous + categorical variables)
 - **Research applications** exploring quantum-inspired methods
 - **Non-linear patterns** where traditional methods struggle
 
 **Not Recommended For:**
-- Multi-class classification (current limitation)
+
+-Multi-class classification (current limitation)
 - Very large datasets (computational considerations)
 - Simple linear separable problems
 - Real-time applications requiring minimal latency
@@ -576,13 +592,15 @@ method_comparison %>%
 ## Parameter Selection Guidelines
 
 **Choosing `n_breaks`:**
-- Start with `n_breaks = 3` (default)
+
+-Start with `n_breaks = 3` (default)
 - Increase for complex continuous variables
 - Decrease for small datasets
 - Use cross-validation to optimize
 
 **Model Validation:**
-- Always use train/validation/test splits
+
+-Always use train/validation/test splits
 - Consider cross-validation for small datasets
 - Monitor overfitting with verbose output
 - Check distribution differences warnings
@@ -616,7 +634,8 @@ cat("Final model accuracy:", accuracy_vec(iris_test$Species, final_pred))
 ## Current Limitations
 
 **Known Limitations:**
-- **Binary classification only** - multi-class extension in development
+
+-**Binary classification only** - multi-class extension in development
 - **Computational complexity** - quadratic scaling with data size
 - **Memory usage** - stores full training quantum matrices
 - **Parameter sensitivity** - requires tuning for optimal performance
@@ -644,12 +663,16 @@ cat("Final model accuracy:", accuracy_vec(iris_test$Species, final_pred))
 **Academic and Industrial Applications:**
 
 - **Quantum-classical hybrid algorithms**
-- **Feature selection in quantum space**
-- **Ensemble methods with quantum components**
-- **Real-time quantum-inspired systems**
+
+-**Feature selection in quantum space**
+
+-**Ensemble methods with quantum components**
+
+-**Real-time quantum-inspired systems**
 
 **Collaboration Welcome:**
-- Theoretical extensions of density matrix methods
+
+-Theoretical extensions of density matrix methods
 - Applications to specific domain problems
 - Performance optimization and scalability
 - Integration with quantum computing platforms
@@ -685,7 +708,8 @@ coordinates <- predict(model, test_data, return_coords = TRUE)
 ```
 
 **Resources:**
-- **Documentation**: `?dm_fit`, `?predict.dm_fit`
+
+-**Documentation**: `?dm_fit`, `?predict.dm_fit`
 - **Examples**: `presentations/` folder
 - **Source**: GitHub repository with comprehensive tests
 
@@ -694,18 +718,27 @@ coordinates <- predict(model, test_data, return_coords = TRUE)
 **Questions and Discussion**
 
 **Contact Information:**
-- **Author**: Xopre Rodríguez Gallego
+
+-**Author**: Xopre Rodríguez Gallego
 - **Repository**: https://github.com/RodGal-2020/qml
 - **Issues**: GitHub Issues for bug reports and feature requests
 
 **Acknowledgments:**
-- Palmer Penguins dataset community
+
+-Palmer Penguins dataset community
 - Tidymodels team for design inspiration
 - Quantum computing research community
 
 **Next Steps:**
-- Try qml on your binary classification problems
+
+-Try qml on your binary classification problems
 - Contribute to multi-class extension development  
 - Share feedback and use cases
 
 **Happy Quantum Machine Learning! 🚀**
+
+# Session Info
+
+```{r session-info, echo=FALSE}
+sessionInfo()
+```

@@ -37,6 +37,27 @@ f_hat_h <- function(D_tilde, x, clase, h_window = 0.1) {
     magrittr::divide_by(n_total * h_window^2)
 }
 
+#' @title Probability Density Estimation (Cartesian coords)
+#' @param D_tilde_xy Training data in Cartesian coordinates (list by class), columns Coord_1, Coord_2
+#' @param x Point to evaluate density at (vector of coordinates)
+#' @param clase Class index to estimate density for
+#' @param h_window Bandwidth parameter for kernel (default = 0.1)
+#' @return Estimated probability density value
+#' @export
+f_hat_h_cartesian <- function(D_tilde_xy, x, clase, h_window = 0.1) {
+  n_total <- D_tilde_xy %>% dplyr::bind_rows() %>% nrow()
+
+  D_tilde_xy[[clase]] %>%
+    dplyr::mutate(
+      v_1 = (x[1] - Coord_1) / h_window,
+      v_2 = (x[2] - Coord_2) / h_window
+    ) %>%
+    dplyr::mutate(kernel_value = purrr::pmap_dbl(dplyr::select(., v_1, v_2), K)) %>%
+    dplyr::pull(kernel_value) %>%
+    sum() %>%
+    magrittr::divide_by(n_total * h_window^2)
+}
+
 #' @title Advanced Kernel Density Estimation
 #' @param training_data Training data in polar coordinates
 #' @param query_point Point to evaluate density at

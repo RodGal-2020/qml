@@ -7,7 +7,7 @@ A modern R package implementing quantum-inspired machine learning algorithms, fe
 - **🔬 Quantum-Inspired Classification**: Novel approach using quantum density matrices and polar coordinate transformations
 - **🎯 Tidymodels Integration**: Full compatibility with tidymodels ecosystem (`fit()`, `predict()`, workflows)
 - **📊 Comparative Analysis**: Built-in tools to compare with traditional methods (PCA, logistic regression, etc.)
-- **🔧 Robust Implementation**: Professional S3 methods with comprehensive error handling and validation  
+- **🔧 Robust Implementation**: S3 methods with comprehensive error handling and validation  
 - **📈 Visualization Support**: Specialized plotting functions for quantum coordinate spaces
 - **⚡ Modern Interface**: Clean, intuitive API following R best practices
 
@@ -107,7 +107,7 @@ qm_pred <- predict(qm_model, test_data)
 
 # Performance comparison
 bind_rows(
-  accuracy(test_data %>% bind_cols(pca_pred), Species, .pred_class) %>% mutate(method = "PCA"),
+  accuracy(test_data %>% bind_cols(pca_pred), Species, .pred_class) %>% mutate(method = "PCA+LR"),
   accuracy(test_data %>% bind_cols(qm_pred), Species, .pred_class) %>% mutate(method = "Quantum Matrix")
 )
 ```
@@ -122,7 +122,8 @@ advanced_model <- dm_fit(
   Species ~ ., 
   data = train_data,  # Same binary data: setosa vs versicolor
   n_breaks = 5,       # More discretization bins
-  verbose = 2         # Detailed output for debugging
+  verbose = 2,        # Detailed output for debugging
+  bandwidth = 0.15    # Kernel bandwidth for density estimation
 )
 
 # Model diagnostics
@@ -186,7 +187,7 @@ penguin_pred <- predict(penguin_model, penguin_test)
 
 | Function | Purpose | Usage |
 |----------|---------|-------|
-| `dm_fit(formula, data, ...)` | Fit quantum matrix classifier | `dm_fit(Species ~ ., data, n_breaks = 3)` |
+| `dm_fit(formula, data, ...)` | Fit quantum matrix classifier | `dm_fit(Species ~ ., data, n_breaks = 3, bandwidth = 0.1)` |
 | `predict.dm_fit(object, newdata, type)` | Make predictions | `predict(model, newdata, type = "class")` |
 | `print.dm_fit(x, ...)` | Display model summary | `print(model)` |
 | `summary.dm_fit(object, ...)` | Detailed model information | `summary(model)` |
@@ -199,6 +200,7 @@ penguin_pred <- predict(penguin_model, penguin_test)
 | `data` | data.frame | - | Training dataset with binary target variable |
 | `n_breaks` | integer | 3 | Discretization bins for continuous variables |
 | `verbose` | integer | 0 | Verbosity level (0=silent, 1+=detailed) |
+| `bandwidth` | numeric | 0.1 | Kernel bandwidth used for density estimation |
 | `type` | character | "class" | Prediction type: "class" or "prob" |
 
 ### Return Values
@@ -233,7 +235,7 @@ Where X represents the quantum-encoded feature matrix. The method then uses SVD 
 
 ```math
 Coordinates = X_normalized × U_matrix
-Polar: r = √(V₁² + V₂²), φ = arctan(V₂/V₁)
+Polar: r = √(V₁² + V₂²), φ = atan2(V₂, V₁) ∈ [0, 2π)
 ```
 
 ### Advantages Over PCA

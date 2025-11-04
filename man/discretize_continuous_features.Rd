@@ -4,7 +4,7 @@
 \alias{discretize_continuous_features}
 \title{Quantum Matrix Operations for Classification}
 \usage{
-discretize_continuous_features(data, n_breaks = 3)
+discretize_continuous_features(data, n_breaks = 3, breaks_list = NULL)
 }
 \arguments{
 \item{data}{Input data frame}

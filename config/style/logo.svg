@@ -1,72 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <!-- Definitions -->
-  <defs>
-    <radialGradient id="coreGradient" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
-    </radialGradient>
-    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e3a8a"/>
-      <stop offset="100%" stop-color="#1e40af"/>
-    </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-      <feMerge> 
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  
-  <!-- Background circle -->
-  <circle cx="100" cy="100" r="95" fill="url(#bgGradient)" stroke="#3b82f6" stroke-width="2"/>
-  
-  <!-- Quantum orbital rings -->
-  <ellipse cx="100" cy="100" rx="70" ry="25" fill="none" stroke="#60a5fa" stroke-width="2" opacity="0.7" transform="rotate(0 100 100)"/>
-  <ellipse cx="100" cy="100" rx="70" ry="25" fill="none" stroke="#60a5fa" stroke-width="2" opacity="0.7" transform="rotate(60 100 100)"/>
-  <ellipse cx="100" cy="100" rx="70" ry="25" fill="none" stroke="#60a5fa" stroke-width="2" opacity="0.7" transform="rotate(120 100 100)"/>
-  
-  <!-- Central quantum core -->
-  <circle cx="100" cy="100" r="12" fill="url(#coreGradient)" stroke="#f59e0b" stroke-width="2" filter="url(#glow)"/>
-  
-  <!-- Matrix elements (small squares representing data points) -->
-  <rect x="60" y="60" width="8" height="8" fill="#34d399" opacity="0.8" rx="1"/>
-  <rect x="132" y="60" width="8" height="8" fill="#34d399" opacity="0.8" rx="1"/>
-  <rect x="60" y="132" width="8" height="8" fill="#34d399" opacity="0.8" rx="1"/>
-  <rect x="132" y="132" width="8" height="8" fill="#34d399" opacity="0.8" rx="1"/>
-  
-  <!-- Additional quantum state indicators -->
-  <rect x="76" y="45" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="118" y="45" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="76" y="149" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="118" y="149" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="45" y="76" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="149" y="76" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="45" y="118" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  <rect x="149" y="118" width="6" height="6" fill="#a78bfa" opacity="0.6" rx="1"/>
-  
-  <!-- Quantum entanglement connections -->
-  <path d="M 60 100 Q 80 80 100 100 Q 120 120 140 100" fill="none" stroke="#f472b6" stroke-width="1.5" opacity="0.6"/>
-  <path d="M 100 60 Q 120 80 100 100 Q 80 120 100 140" fill="none" stroke="#f472b6" stroke-width="1.5" opacity="0.6"/>
-  
-  <!-- Main text "qml" -->
-  <text x="100" y="115" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold" filter="url(#glow)">qml</text>
-  
-  <!-- Subtitle -->
-  <text x="100" y="130" text-anchor="middle" fill="#94a3b8" font-family="Arial, sans-serif" font-size="8" font-weight="normal">quantum machine learning</text>
-  
-  <!-- R integration indicator -->
-  <circle cx="170" cy="30" r="15" fill="#276dc3" stroke="#1e40af" stroke-width="1"/>
-  <text x="170" y="35" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="12" font-weight="bold">R</text>
-  
-  <!-- Polar coordinate indicator (r, φ) -->
-  <path d="M 30 30 A 15 15 0 0 1 45 45" fill="none" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>
-  <circle cx="30" cy="30" r="2" fill="#fbbf24" opacity="0.8"/>
-  <text x="50" y="32" fill="#fbbf24" font-family="Arial, sans-serif" font-size="6" opacity="0.6">r,φ</text>
-  
-  <!-- Binary classification indicator -->
-  <circle cx="30" cy="170" r="4" fill="#10b981" opacity="0.8"/>
-  <circle cx="40" cy="170" r="4" fill="#ef4444" opacity="0.8"/>
-  <text x="50" y="173" fill="#94a3b8" font-family="Arial, sans-serif" font-size="6">binary</text>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="432" height="432" viewBox="0 0 432 432">
+<defs>
+<g>
+<g id="glyph-0-0">
+<path d="M 8.613281 -27.84375 L 3.304688 -31.957031 C 4.992188 -33.855469 6.75 -35.671875 8.578125 -37.40625 C 9.304688 -38.109375 9.761719 -38.554688 9.949219 -38.742188 C 9.363281 -38.835938 7.6875 -39.222656 4.921875 -39.902344 C 2.929688 -40.394531 1.617188 -40.757812 0.984375 -40.992188 L 3.058594 -47.179688 C 6.128906 -45.9375 8.871094 -44.566406 11.285156 -43.066406 C 10.722656 -46.886719 10.441406 -50.003906 10.441406 -52.417969 L 16.699219 -52.417969 C 16.699219 -50.707031 16.382812 -47.566406 15.75 -42.996094 C 16.21875 -43.183594 17.226562 -43.640625 18.773438 -44.367188 C 20.882812 -45.328125 22.828125 -46.148438 24.609375 -46.828125 L 26.472656 -40.464844 C 23.871094 -39.878906 20.859375 -39.304688 17.4375 -38.742188 L 21.65625 -33.996094 C 22.5 -33.035156 23.167969 -32.25 23.660156 -31.640625 L 18.28125 -28.089844 L 13.535156 -35.929688 C 12.105469 -33.398438 10.464844 -30.703125 8.613281 -27.84375 Z M 8.613281 -27.84375 "/>
+</g>
+<g id="glyph-0-1">
+<path d="M 29.566406 14.203125 L 29.566406 -4.570312 C 28.277344 -2.90625 26.671875 -1.585938 24.75 -0.617188 C 22.828125 0.355469 20.753906 0.84375 18.527344 0.84375 C 14.285156 0.84375 10.792969 -0.75 8.050781 -3.9375 C 4.816406 -7.664062 3.199219 -12.714844 3.199219 -19.089844 C 3.199219 -25.089844 4.714844 -29.769531 7.75 -33.132812 C 10.785156 -36.496094 14.554688 -38.179688 19.054688 -38.179688 C 21.539062 -38.179688 23.6875 -37.652344 25.507812 -36.597656 C 27.320312 -35.542969 28.933594 -33.949219 30.339844 -31.816406 L 30.339844 -37.335938 L 39.445312 -37.335938 L 39.445312 14.203125 L 29.566406 14.203125 M 29.882812 -19.125 C 29.882812 -22.945312 29.101562 -25.789062 27.546875 -27.648438 C 25.984375 -29.515625 24.035156 -30.445312 21.691406 -30.445312 C 19.300781 -30.445312 17.300781 -29.496094 15.695312 -27.597656 C 14.089844 -25.699219 13.289062 -22.6875 13.289062 -18.5625 C 13.289062 -14.460938 14.0625 -11.5 15.609375 -9.6875 C 17.15625 -7.867188 19.066406 -6.960938 21.339844 -6.960938 C 23.613281 -6.960938 25.605469 -7.980469 27.316406 -10.019531 C 29.027344 -12.058594 29.882812 -15.09375 29.882812 -19.125 Z M 29.882812 -19.125 "/>
+</g>
+<g id="glyph-0-2">
+<path d="M 4.429688 -37.335938 L 13.535156 -37.335938 L 13.535156 -32.238281 C 16.792969 -36.199219 20.671875 -38.179688 25.171875 -38.179688 C 27.5625 -38.179688 29.636719 -37.6875 31.394531 -36.703125 C 33.152344 -35.71875 34.59375 -34.230469 35.71875 -32.238281 C 37.359375 -34.230469 39.128906 -35.71875 41.027344 -36.703125 C 42.925781 -37.6875 44.953125 -38.179688 47.109375 -38.179688 C 49.851562 -38.179688 52.171875 -37.621094 54.070312 -36.507812 C 55.96875 -35.394531 57.386719 -33.761719 58.324219 -31.605469 C 59.003906 -30.011719 59.34375 -27.433594 59.34375 -23.871094 L 59.34375 0 L 49.464844 0 L 49.464844 -21.339844 C 49.464844 -25.042969 49.125 -27.433594 48.445312 -28.511719 C 47.53125 -29.917969 46.125 -30.621094 44.226562 -30.621094 C 42.84375 -30.621094 41.542969 -30.199219 40.324219 -29.355469 C 39.105469 -28.511719 38.226562 -27.273438 37.6875 -25.648438 C 37.148438 -24.015625 36.878906 -21.445312 36.878906 -17.929688 L 36.878906 0 L 27 0 L 27 -20.460938 C 27 -24.09375 26.824219 -26.4375 26.472656 -27.492188 C 26.121094 -28.546875 25.578125 -29.332031 24.835938 -29.847656 C 24.101562 -30.363281 23.097656 -30.621094 21.832031 -30.621094 C 20.308594 -30.621094 18.9375 -30.210938 17.71875 -29.390625 C 16.5 -28.570312 15.625 -27.386719 15.101562 -25.839844 C 14.570312 -24.292969 14.308594 -21.726562 14.308594 -18.140625 L 14.308594 0 L 4.429688 0 Z M 4.429688 -37.335938 "/>
+</g>
+<g id="glyph-0-3">
+<path d="M 5.167969 0 L 5.167969 -51.539062 L 15.046875 -51.539062 L 15.046875 0 Z M 5.167969 0 "/>
+</g>
+</g>
+</defs>
+<path fill-rule="nonzero" fill="rgb(5.882353%, 12.156863%, 22.745098%)" fill-opacity="1" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(12.156863%, 16.470588%, 26.666667%)" stroke-opacity="1" stroke-miterlimit="10" d="M 216 26 L 51.457031 121 L 51.457031 311 L 216 406 L 380.542969 311 L 380.542969 121 Z M 216 26 "/>
+<path fill-rule="nonzero" fill="rgb(98.431373%, 74.901961%, 14.117647%)" fill-opacity="1" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(96.078431%, 61.960784%, 4.313725%)" stroke-opacity="1" stroke-miterlimit="10" d="M 224.101562 216 C 224.101562 220.472656 220.472656 224.101562 216 224.101562 C 211.527344 224.101562 207.898438 220.472656 207.898438 216 C 207.898438 211.527344 211.527344 207.898438 216 207.898438 C 220.472656 207.898438 224.101562 211.527344 224.101562 216 "/>
+<path fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(13.333333%, 82.745098%, 93.333333%)" stroke-opacity="1" stroke-miterlimit="10" d="M 46 246 L 386 286 "/>
+<g fill="rgb(91.764706%, 70.196078%, 3.137255%)" fill-opacity="1">
+<use xlink:href="#glyph-0-0" x="161.992188" y="216.132812"/>
+</g>
+<path fill-rule="nonzero" fill="rgb(13.333333%, 82.745098%, 93.333333%)" fill-opacity="1" d="M 299.558594 340 C 299.558594 344.175781 296.175781 347.558594 292 347.558594 C 287.824219 347.558594 284.441406 344.175781 284.441406 340 C 284.441406 335.824219 287.824219 332.441406 292 332.441406 C 296.175781 332.441406 299.558594 335.824219 299.558594 340 "/>
+<g fill="rgb(89.803922%, 90.588235%, 92.156863%)" fill-opacity="1">
+<use xlink:href="#glyph-0-1" x="152" y="214.667969"/>
+<use xlink:href="#glyph-0-2" x="195.980469" y="214.667969"/>
+<use xlink:href="#glyph-0-3" x="260" y="214.667969"/>
+</g>
 </svg>

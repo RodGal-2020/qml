@@ -127,7 +127,7 @@ p1 <- data %>%
   theme(legend.position = "none")
 
 # Correlation heatmap for numeric variables
-numeric_data <- data %>% select_if(is.numeric)
+numeric_data <- data %>% dplyr::select(where(is.numeric))
 cor_matrix <- cor(numeric_data)
 
 p2 <- cor_matrix %>%
@@ -609,3 +609,9 @@ auc_diff <- comparison_metrics$roc_auc[comparison_metrics$method == "Density Mat
 - R tidymodels ecosystem
 - ggplot2 for visualizations  
 - Custom quantum matrix implementation
+
+# Session Info
+
+```{r session-info, echo=FALSE}
+sessionInfo()
+```

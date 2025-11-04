@@ -78,6 +78,12 @@ validate_dm_input <- function(data, objective_var, n_breaks = 3) {
     stop("Missing values found in objective variable")
   }
   
+  # Enforce binary classification (current package limitation)
+  n_levels <- length(levels(as.factor(data[[objective_var]])))
+  if (n_levels != 2) {
+    stop("Binary classification required: objective variable must have exactly 2 classes")
+  }
+
   # Check minimum observations per class (only for classes that actually appear in data)
   class_counts <- table(data[[objective_var]])
   active_classes <- class_counts[class_counts > 0]  # Only classes with observations

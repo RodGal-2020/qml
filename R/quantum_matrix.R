@@ -17,9 +17,34 @@
 #' @return Data frame with continuous variables discretized
 #'
 #' @keywords internal
-discretize_continuous_features <- function(data, n_breaks = 3) {
+discretize_continuous_features <- function(data, n_breaks = 3, breaks_list = NULL) {
+  data <- tibble::as_tibble(data)
+  # Build breaks_list if not provided
+  if (is.null(breaks_list)) {
+    breaks_list <- purrr::imap(data, function(col, nm) {
+      if (is.numeric(col)) {
+        rng <- range(col, na.rm = TRUE)
+        if (!is.finite(rng[1]) || !is.finite(rng[2]) || rng[1] == rng[2]) {
+          # Degenerate range: create small epsilon range
+          rng <- c(ifelse(is.finite(rng[1]), rng[1], 0), ifelse(is.finite(rng[2]), rng[2], 1))
+          rng[2] <- rng[1] + 1e-6
+        }
+        seq(rng[1], rng[2], length.out = n_breaks + 1)
+      } else {
+        NULL
+      }
+    })
+  }
+
+  # Apply discretization using explicit breaks
   data %>%
-    purrr::map_if(is.numeric, ~ cut(.x, breaks = n_breaks)) %>%
+    purrr::imap(~ {
+      if (is.numeric(.x) && !is.null(breaks_list[[.y]])) {
+        cut(.x, breaks = breaks_list[[.y]], include.lowest = TRUE, right = TRUE)
+      } else {
+        .x
+      }
+    }) %>%
     tibble::as_tibble()
 }
 
@@ -34,25 +59,21 @@ discretize_continuous_features <- function(data, n_breaks = 3) {
 #'
 #' @keywords internal
 encode_logical_variables <- function(data, test_var) {
-  test_data <- data[test_var]
-  
-  processed_data <- data %>%
-    dplyr::select(-dplyr::all_of(test_var)) %>%
-    purrr::map_if(is.logical, function(logical_col) {
-      logical_col %>%
-        purrr::map(function(value) {
-          template <- rep(0, 2)
-          if (!is.na(value)) {
-            template[as.numeric(value) + 1] <- 1
-          }
-          names(template) <- c("FALSE", "TRUE")
-          return(template)
-        })
-    }) %>%
-    tibble::as_tibble() %>%
-    dplyr::bind_cols(test_data)
-    
-  return(processed_data)
+  # Expand logical columns into one-hot while preserving all other columns
+  expanded <- purrr::imap(data, function(col, nm) {
+    if (nm %in% test_var) return(col)
+    if (is.logical(col)) {
+      purrr::map(col, function(value) {
+        template <- rep(0, 2)
+        if (!is.na(value)) template[as.numeric(value) + 1] <- 1
+        names(template) <- c("FALSE", "TRUE")
+        template
+      })
+    } else {
+      col
+    }
+  })
+  expanded %>% tibble::as_tibble()
 }
 
 #' @title Encode Categorical Variables
@@ -66,32 +87,35 @@ encode_logical_variables <- function(data, test_var) {
 #' @return Data frame with factor variables encoded
 #'
 #' @keywords internal
-encode_categorical_variables <- function(data, objective_var, test_var) {
+encode_categorical_variables <- function(data, objective_var, test_var, levels_list = NULL) {
   objective_data <- data %>%
     dplyr::select(dplyr::all_of(objective_var), dplyr::all_of(test_var))
 
-  processed_data <- data %>%
-    dplyr::select(-dplyr::all_of(objective_var), -dplyr::all_of(test_var)) %>%
-    purrr::map_if(is.factor, function(factor_col) {
-      level_names <- levels(factor_col)
+  non_target <- data %>% dplyr::select(-dplyr::all_of(objective_var), -dplyr::all_of(test_var))
+
+  encoded_cols <- purrr::imap(non_target, function(col, nm) {
+    if (is.factor(col)) {
+      # Enforce training-time levels if provided
+      if (!is.null(levels_list) && !is.null(levels_list[[nm]])) {
+        col <- factor(col, levels = levels_list[[nm]])
+      }
+      level_names <- levels(col)
       n_levels <- length(level_names)
-      factor_col %>%
-        purrr::map(function(value) {
-          template <- rep(0, n_levels)
-          if (!is.na(value) && as.numeric(value) <= n_levels) {
-            template[as.numeric(value)] <- 1
-          }
-          names(template) <- if (length(level_names) == n_levels) {
-            level_names
-          } else {
-            paste0("level_", 1:n_levels)
-          }
-          return(template)
-        })
-    }) %>%
-    tibble::as_tibble() %>%
-    dplyr::bind_cols(objective_data)
-    
+      res <- purrr::map(col, function(value) {
+        template <- rep(0, n_levels)
+        if (!is.na(value) && as.numeric(value) <= n_levels) {
+          template[as.numeric(value)] <- 1
+        }
+        names(template) <- if (length(level_names) == n_levels) level_names else paste0("level_", 1:n_levels)
+        template
+      })
+      return(res)
+    } else {
+      return(col)
+    }
+  })
+
+  processed_data <- encoded_cols %>% tibble::as_tibble() %>% dplyr::bind_cols(objective_data)
   return(processed_data)
 }
 
@@ -106,7 +130,7 @@ encode_categorical_variables <- function(data, objective_var, test_var) {
 #'
 #' @keywords internal
 encode_target_variable <- function(data, objective_var) {
-  n_classes <- data[[objective_var]] %>% unique() %>% length()
+  n_classes <- length(levels(as.factor(data[[objective_var]])))
   class_template <- rep(0, n_classes)
 
   data[[objective_var]] %<>%
@@ -117,6 +141,24 @@ encode_target_variable <- function(data, objective_var) {
     })
     
   return(data)
+}
+
+#' @title Compute breaks list for numeric columns
+#' @keywords internal
+compute_breaks_list <- function(data, n_breaks = 3) {
+  data <- tibble::as_tibble(data)
+  purrr::imap(data, function(col, nm) {
+    if (is.numeric(col)) {
+      rng <- range(col, na.rm = TRUE)
+      if (!is.finite(rng[1]) || !is.finite(rng[2]) || rng[1] == rng[2]) {
+        rng <- c(ifelse(is.finite(rng[1]), rng[1], 0), ifelse(is.finite(rng[2]), rng[2], 1))
+        rng[2] <- rng[1] + 1e-6
+      }
+      seq(rng[1], rng[2], length.out = n_breaks + 1)
+    } else {
+      NULL
+    }
+  })
 }
 
 #' @title Create Quantum Matrix Representation
@@ -272,21 +314,25 @@ get_rho_d <- function(
   objective_var = NULL,
   n_breaks = 3,
   verbose = 0,
-  test_var = "test"
+  test_var = "test",
+  breaks_list = NULL,
+  cat_levels = NULL
 ) {
   # Step 1: Prepare and validate data
   Data <- Data %>%
     tibble::as_tibble() %>%
     dplyr::mutate(!!rlang::sym(objective_var) := as.factor(!!rlang::sym(objective_var)))
+  # Determine number of classes from objective variable levels (before encoding)
+  n_classes <- length(levels(Data[[objective_var]]))
 
   # Step 2: Discretize continuous features
-  Data <- discretize_continuous_features(Data, n_breaks)
+  Data <- discretize_continuous_features(Data, n_breaks, breaks_list)
   
   # Step 3: Encode logical variables
   Data <- encode_logical_variables(Data, test_var)
   
   # Step 4: Encode categorical variables
-  Data <- encode_categorical_variables(Data, objective_var, test_var)
+  Data <- encode_categorical_variables(Data, objective_var, test_var, cat_levels)
   
   # Step 5: Encode target variable
   Data <- encode_target_variable(Data, objective_var)
@@ -299,11 +345,7 @@ get_rho_d <- function(
     Data %>% dplyr::glimpse()
   }
   
-  # Step 7: Separate data by class
-  n_classes <- length(unique(Data[[paste0(objective_var, "_class_1")]]))
-  if (any(grepl(paste0(objective_var, "_class_2"), names(Data)))) {
-    n_classes <- sum(grepl(paste0(objective_var, "_class_"), names(Data)))
-  }
+  # Step 7: Separate data by class (use factor levels count from training data)
   
   class_data <- separate_data_by_class(Data, objective_var, n_classes)
   

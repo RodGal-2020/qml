@@ -9,7 +9,9 @@ get_rho_d(
   objective_var = NULL,
   n_breaks = 3,
   verbose = 0,
-  test_var = "test"
+  test_var = "test",
+  breaks_list = NULL,
+  cat_levels = NULL
 )
 }
 \arguments{

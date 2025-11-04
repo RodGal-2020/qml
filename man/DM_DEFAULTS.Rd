@@ -5,7 +5,7 @@
 \alias{DM_DEFAULTS}
 \title{Utility Functions for Quantum Matrix Classification}
 \format{
-An object of class \code{list} of length 9.
+An object of class \code{list} of length 10.
 }
 \usage{
 DM_DEFAULTS

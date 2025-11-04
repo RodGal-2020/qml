@@ -9,7 +9,8 @@
 DM_DEFAULTS <- list(
   n_breaks = 3, verbose = 0, test_var = "test", zero_limit = 4,
   h_window = 0.1, bandwidth = 0.1, min_observations_per_class = 2,
-  eigenvalue_tolerance = 1e-15, trace_tolerance = 1e-10
+  eigenvalue_tolerance = 1e-15, trace_tolerance = 1e-10,
+  angle_range = "0_2pi"
 )
 
 #' @title Check Package Dependencies

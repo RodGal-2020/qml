@@ -10,7 +10,8 @@ get_preprocessing_params(
   n_breaks = 3,
   verbose = 0,
   test_var = "test",
-  zero_limit = 4
+  zero_limit = 4,
+  bandwidth = DM_DEFAULTS$bandwidth
 )
 }
 \arguments{

@@ -1,0 +1,280 @@
+---
+title: "DM vs Plain Kernel Density (f_hat)"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+codification: "UTF-8"
+output:
+  ioslides_presentation:
+    widescreen: true
+    transition: slower
+    css: ../config/style/matteocourthoud_custom_ioslides.css
+    logo: ../config/style/logo.svg
+params:
+  test_prop: 0.25
+  random_seed: 42
+  baseline_features: ["Petal.Length", "Petal.Width"]
+---
+
+```{r setup, include=FALSE}
+source(here::here("config/setup.R"))
+set.seed(params$random_seed)
+
+library(qml)
+library(dplyr)
+library(ggplot2)
+library(rsample)
+library(yardstick)
+library(tidyr)
+library(purrr)
+
+# Helper: get f_hat_h_cartesian (from qml if available, else fallback)
+if (!exists("f_hat_h_cartesian")) {
+  f_hat_h_cartesian <- function(D_tilde_xy, x, clase, h_window = 0.1) {
+    n_total <- D_tilde_xy %>% dplyr::bind_rows() %>% nrow()
+    D_tilde_xy[[clase]] %>%
+      dplyr::mutate(
+        v_1 = (x[1] - Coord_1) / h_window,
+        v_2 = (x[2] - Coord_2) / h_window
+      ) %>%
+      dplyr::mutate(kernel_value = purrr::pmap_dbl(dplyr::select(., v_1, v_2), qml::K)) %>%
+      dplyr::pull(kernel_value) %>%
+      sum() %>%
+      magrittr::divide_by(n_total * h_window^2)
+  }
+}
+```
+
+# Goal and Design
+
+## What we test
+
+- DM pipeline: change coordinates via the quantum matrix (as in `dm_fit()`/`predict()`), then density-based classification.
+- Plain kernel density baseline: apply the same kernel density classification directly on the raw feature space (2D), without quantum coordinate changes.
+
+Both use the same train/test split and the same bandwidth to be comparable.
+
+Style note (as in DM): short context + focused chunks, with a quick “how to read” where helpful.
+
+# Data and split
+
+## Dataset
+
+We reuse a harder binary problem as in DM_hard: `versicolor` vs `virginica` from `datasets::iris`.
+
+```{r DMC-1}
+Data <- datasets::iris %>%
+  dplyr::filter(Species %in% c("versicolor", "virginica")) %>%
+  dplyr::mutate(
+    y = ifelse(Species == "versicolor", "0", "1"),
+    .keep = "unused"
+  ) %>%
+  dplyr::mutate(y = factor(y)) %>%
+  dplyr::relocate(y)
+
+Data %>% dplyr::glimpse()
+```
+
+Why this dataset: Versicolor vs Virginica presents a more overlapping boundary than Setosa vs others, making it a fair stress test for the coordinate transform.
+
+Visual overlap on the chosen baseline features (for intuition):
+
+```{r DMC-1b, echo=FALSE}
+raw_feats <- params$baseline_features
+Data %>%
+  ggplot(aes_string(x = raw_feats[1], y = raw_feats[2], color = "y")) +
+  geom_point(alpha = 0.8) +
+  scale_color_brewer(palette = "Set1", name = "Class") +
+  labs(title = paste("Iris:", paste(raw_feats, collapse = " vs ")), subtitle = "Baseline 2D space used by the kernel",
+       x = raw_feats[1], y = raw_feats[2]) +
+  theme_minimal()
+```
+
+## Train/Test split
+
+```{r DMC-2}
+Data_split <- initial_split(Data, prop = 1 - params$test_prop, strata = "y")
+Data_train <- training(Data_split)
+Data_test  <- testing(Data_split)
+
+rbind(
+  train = table(Data_train$y),
+  test  = table(Data_test$y)
+)
+```
+
+# Model A: DM pipeline
+
+## Fit and predict with DM
+
+```{r DMC-3}
+# Fit DM classifier (polar by default)
+dm_model <- dm_fit(y ~ ., data = Data_train, n_breaks = 3)
+
+# Use model bandwidth for the baseline, too
+common_bandwidth <- dm_model$bandwidth
+
+# Predictions
+pred_class_dm <- predict(dm_model, newdata = Data_test)
+pred_prob_dm  <- predict(dm_model, newdata = Data_test, type = "prob")
+
+result_dm <- Data_test %>%
+  dplyr::mutate(
+    .pred  = pred_class_dm,
+    .truth = y
+  ) %>%
+  dplyr::bind_cols(pred_prob_dm)
+head(result_dm)
+```
+
+As in DM slides, we keep the preview minimal—just enough to verify the structure.
+
+# Model B: Plain kernel density on raw features
+
+## Build baseline training data in 2D
+
+We choose two raw features (default: Petal.Length, Petal.Width), standardize using the training set, and classify via the same kernel.
+
+```{r DMC-4}
+raw_feats <- params$baseline_features
+stopifnot(all(raw_feats %in% names(Data_train)))
+
+# Standardization fit on train
+mu <- sapply(Data_train[raw_feats], mean)
+sd <- sapply(Data_train[raw_feats], sd)
+
+std <- function(df) {
+  as_tibble(scale(df[raw_feats], center = mu, scale = sd)) %>%
+    setNames(c("Coord_1", "Coord_2"))
+}
+
+train_std <- std(Data_train) %>% dplyr::mutate(y = Data_train$y)
+
+# Split into class lists with Coord_1, Coord_2 columns
+baseline_train_list <- list(
+  train_std %>% dplyr::filter(y == "0") %>% dplyr::select(Coord_1, Coord_2),
+  train_std %>% dplyr::filter(y == "1") %>% dplyr::select(Coord_1, Coord_2)
+)
+```
+
+Notes:
+
+- Standardization uses train mean/sd and is applied to test—mirrors typical modeling practice.
+- Naming columns `Coord_1` and `Coord_2` lets us reuse the same kernel machinery.
+
+## Predict on test with baseline
+
+```{r DMC-5}
+# Standardize test with train parameters
+test_std <- std(Data_test)
+
+# For each test row, compute class densities and form predictions
+predict_baseline <- function(x1, x2, bandwidth) {
+  probs <- seq_along(baseline_train_list) %>%
+    map_dbl(function(cls) f_hat_h_cartesian(baseline_train_list, c(x1, x2), clase = cls, h_window = bandwidth))
+  if (all(probs == 0)) {
+    probs <- rep(1/length(baseline_train_list), length(baseline_train_list))
+  } else {
+    probs <- probs / sum(probs)
+  }
+  list(class = which.max(probs), probs = probs)
+}
+
+pred_list <- pmap(test_std, ~ predict_baseline(..1, ..2, common_bandwidth))
+
+pred_class_base <- map_int(pred_list, ~ .x$class) %>% factor(levels = 1:2, labels = c("0","1"))
+pred_prob_base  <- map(pred_list, ~ .x$probs) %>% do.call(rbind, .) %>% as_tibble()
+colnames(pred_prob_base) <- c(".pred_0", ".pred_1")
+
+result_base <- Data_test %>%
+  dplyr::mutate(
+    .pred  = pred_class_base,
+    .truth = y
+  ) %>%
+  dplyr::bind_cols(pred_prob_base)
+head(result_base)
+```
+
+This forms a like-for-like density estimator on the raw 2D space with the same bandwidth.
+
+# Comparison
+
+## Metrics side-by-side
+
+```{r DMC-6}
+met <- metric_set(bal_accuracy, accuracy, sensitivity, specificity, f_meas, kap, mcc)
+
+m_dm <- met(result_dm, truth = .truth, estimate = .pred) %>% dplyr::mutate(model = "DM")
+m_ba <- met(result_base, truth = .truth, estimate = .pred) %>% dplyr::mutate(model = "Baseline")
+
+bind_rows(m_dm, m_ba) %>%
+  tidyr::pivot_wider(names_from = model, values_from = .estimate) %>%
+  dplyr::arrange(.metric) %>%
+  knitr::kable(caption = "Metrics: DM vs Plain Kernel Density Baseline")
+```
+
+How to read (following DM):
+
+- Higher balanced accuracy indicates better average performance across classes.
+- Kappa/MCC capture agreement beyond chance; useful for nuanced comparisons.
+
+## ROC AUC
+
+```{r DMC-7}
+auc_dm <- roc_auc(result_dm, truth = .truth, .pred_1, event_level = "second") %>% dplyr::mutate(model = "DM")
+auc_ba <- roc_auc(result_base, truth = .truth, .pred_1, event_level = "second") %>% dplyr::mutate(model = "Baseline")
+
+bind_rows(auc_dm, auc_ba) %>% knitr::kable(caption = "ROC AUC: DM vs Baseline")
+```
+
+If DM’s coordinate change adds value, we expect a consistently higher AUC than the baseline.
+
+## Confusion matrices
+
+```{r DMC-8, message=FALSE}
+cm_dm  <- conf_mat(result_dm, truth = .truth, estimate = .pred)
+cm_ba  <- conf_mat(result_base, truth = .truth, estimate = .pred)
+
+list(DM = cm_dm, Baseline = cm_ba)
+```
+
+Diagonal dominance indicates better classification; compare error types across methods.
+
+## Probability distributions
+
+```{r DMC-9, echo=FALSE}
+plot_probs <- function(df, title) {
+  df %>%
+    dplyr::select(starts_with(".pred_"), .truth) %>%
+    tidyr::pivot_longer(cols = starts_with(".pred_"), names_to = "predicted_class", values_to = "probability") %>%
+    dplyr::mutate(predicted_class = stringr::str_remove(predicted_class, "^\\.pred_")) %>%
+    ggplot(aes(x = probability, fill = predicted_class)) +
+    geom_density(alpha = 0.7) +
+    facet_wrap(~.truth, labeller = label_both) +
+    labs(title = title, x = "Predicted Probability", y = "Density", fill = "Predicted Class") +
+    theme_minimal()
+}
+
+plot_probs(result_dm,  "DM: Probability Distributions")
+plot_probs(result_base,"Baseline: Probability Distributions")
+```
+
+Reading guidance (as in DM):
+
+- Within each facet (true class), the corresponding class curve should peak near probability 1.
+- Less overlap and sharper peaks generally indicate a more confident, better-calibrated model.
+
+# Notes
+
+- Same split, same bandwidth: fair comparison.
+- Differences reflect the added structure from the quantum coordinate transform vs working directly in raw feature space.
+
+Takeaways:
+
+- If DM outperforms the baseline across metrics and AUC, the quantum-induced coordinate change is helpful on this task.
+- If results are similar, the raw 2D space may be adequate, or bandwidth/feature choices may need tuning.
+
+# Session Info
+
+```{r session-info, echo=FALSE}
+sessionInfo()
+```

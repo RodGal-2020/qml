@@ -4,7 +4,7 @@
 \alias{classify_dm}
 \title{Quantum Matrix Classifier - Main Interface}
 \usage{
-classify_dm(x, D_tilde)
+classify_dm(x, D_tilde, bandwidth = DM_DEFAULTS$bandwidth)
 }
 \description{
 Core functions for quantum machine learning classification

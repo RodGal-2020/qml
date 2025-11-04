@@ -4,7 +4,14 @@
 \alias{dm_fit}
 \title{Quantum Matrix Method for Classification - Model Fitting}
 \usage{
-dm_fit(formula, data, n_breaks = 3, verbose = 0, ...)
+dm_fit(
+  formula,
+  data,
+  n_breaks = 3,
+  verbose = 0,
+  bandwidth = DM_DEFAULTS$bandwidth,
+  ...
+)
 }
 \arguments{
 \item{formula}{A formula specifying the model (e.g., y ~ .)}

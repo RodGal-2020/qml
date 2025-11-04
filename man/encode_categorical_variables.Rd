@@ -4,7 +4,7 @@
 \alias{encode_categorical_variables}
 \title{Encode Categorical Variables}
 \usage{
-encode_categorical_variables(data, objective_var, test_var)
+encode_categorical_variables(data, objective_var, test_var, levels_list = NULL)
 }
 \arguments{
 \item{data}{Input data frame}

@@ -15,6 +15,7 @@ params:
   rank_metric: "bal_accuracy"
   test: TRUE
   bootstrap_size: 1
+  random_seed: 42
 ---
 
 ```{r setup, include=FALSE}
@@ -24,6 +25,9 @@ source(here::here("config/setup.R"))
 # load(here::here("data/presentations/DM_env.RData"))
 # namer::unname_chunks(here("presentations/DM.Rmd")) # Renaming
 # namer::name_chunks(here("presentations/DM.Rmd")) 
+
+# Reproducibility
+set.seed(params$random_seed)
 ```
 
 ```{r package-setup, include=FALSE, warning=FALSE}
@@ -62,7 +66,7 @@ Our objective, therefore, is to identify the species using all the other variabl
 
 ## Data preparation - Species selection
 
-However, due to the limitations of our model so far, we will be working with only 2 of those species: Adelie and Gentoo, the ones whose difference in `Body mass` and `Flipper length` can allow us to separate them more easily.
+However, due to the limitations of our model so far, we will be working with only 2 of those species: Adelie and Gentoo, the ones whose difference in `Body mass` and `Flipper length` can allow us to separate them more easily. The `species` variable will be renamed to `y`, with `0` for Adelie and `1` for Gentoo.
 
 ```{r DM-2 }
 Data %<>% 
@@ -72,7 +76,7 @@ Data %<>%
   relocate(y)
 ```
 
-## Data preparation - aNAlysis
+## Data preparation - NA handling
 
 We will just drop the `NA` values.
 
@@ -88,7 +92,7 @@ qml::plot_n_levels(Data)
 
 ## Data preparation - split
 
-For the sake of comparison, we will split the data into a training set and a test set, using a proportion defined in the parameters section. We will stratify the split based on the `species` variable to ensure that both species are represented proportionally in both sets.
+For the sake of comparison, we will split the data into a training set and a test set, using a proportion defined in the parameters section (`r params$test_prop` in our case). We will stratify the split based on the `species` variable to ensure that both species are represented proportionally in both sets.
 
 ```{r DM-6 }
 Data_split <- Data %>% rsample::initial_split(prop = 1 - params$test_prop, strata = "y")
@@ -104,6 +108,7 @@ Data_test <- Data_split %>% rsample::testing()
 The qml package now follows tidymodels conventions with a modern `dm_fit()` and `predict()` interface. This separates model fitting from prediction and follows established R modeling patterns.
 
 **Key functions:**
+
 - `dm_fit()`: Fits the quantum matrix classifier
 - `predict()`: Makes predictions on new data
 - Supporting functions for visualization and analysis
@@ -116,7 +121,22 @@ The function `K` defines the kernel used in `f_hat_h` for smooth density estimat
 
 **Usage example:**
 
-```{r DM-9, warning=FALSE}
+```{r DM-9, warning=FALSE, eval=FALSE}
+library(ggplot2)
+# Kernel function at a vector point c(0.1, 0.2)
+v <- (-110:110)/100
+expand.grid(x = v, y = v) %>%
+  mutate(z = purrr::pmap_dbl(select(., x, y), ~ K(c(...), r = 2))) %>%
+  ggplot(aes(x = x, y = y, z = z)) +
+  geom_raster(aes(fill = z)) +
+  scale_fill_viridis_c() +
+  labs(title = "Kernel Function K(x)", x = "x", y = "y", fill = "K(x)") +
+  theme_minimal()
+```
+
+## DM - K (Kernel function)
+
+```{r DM-9b, warning=FALSE, echo=FALSE}
 library(ggplot2)
 # Kernel function at a vector point c(0.1, 0.2)
 v <- (-110:110)/100
@@ -139,9 +159,9 @@ K(x) =
 \end{cases}
 \]
 
-where \(r\) is the dimension (default 2), and \(\|x\|^2 = \sum_i x_i^2\).
+where \(r\) is the dimension (default 2), and \(\|x\|^2 = \sum_i x_i^2\)
 
-## DM - Model Fitting
+## DM - Model fitting
 
 The `dm_fit()` function fits the quantum matrix classifier using tidymodels conventions. It processes the dataset, creates quantum density matrices, and stores all necessary information for prediction.
 
@@ -156,13 +176,14 @@ print(dm_model)
 ## DM - Model fitting
 
 **Key features:**
+
 - Follows R modeling conventions with formula interface
 - Stores preprocessing parameters for consistent predictions
 - Returns a fitted model object with summary information
 
 **Mathematical concept:**
 
-The quantum density matrix \(\rho_d = \frac{X X^\top}{\text{trace}(X X^\top)}\) represents class covariances in a quantum-inspired manner.
+The quantum density matrix \(\rho_d = \frac{X X^\top}{\text{trace}(X X^\top)}\) represents class covariances that can be understood as the representation of a quantum experiment.
 
 ## DM - Predictions
 
@@ -184,9 +205,28 @@ prob_pred <- predict(dm_model, newdata = Data_test, type = "prob")
 head(prob_pred)
 ```
 
+## DM - Predictions with Polar Coordinates
+
+We can retrieve polar coordinates for new data to visualize the quantum space.
+
+```{r DM-13a, message=FALSE, warning=FALSE}
+pred_with_coords <- predict(dm_model, newdata = Data_test, return_coords = TRUE)
+
+# Inspect returned structure
+str(pred_with_coords)
+```
+
+## DM - Predictions with Polar Coordinates
+
+```{r DM-13b, message=FALSE, warning=FALSE}
+# Quick look at coordinates
+head(pred_with_coords$coords)
+```
+
 ## DM - Predictions
 
 **Key features:**
+
 - Standard `predict()` interface following R conventions
 - Supports `type = "class"` and `type = "prob"`
 - Uses stored preprocessing parameters for consistent transformation
@@ -202,12 +242,20 @@ The fitted model provides comprehensive information about the training process a
 
 **Usage example:**
 
-```{r DM-14}
+```{r DM-14, eval=FALSE}
 # Model summary
 summary(dm_model)
 ```
 
+```{r DM-14b, echo=FALSE}
+# Model summary
+summary(dm_model)
+```
+
+## DM - Model Summary and Diagnostics
+
 **Available information:**
+
 - Training data statistics
 - Class distributions in polar coordinates  
 - Preprocessing parameters
@@ -217,7 +265,7 @@ summary(dm_model)
 
 Kernel density estimation: \(\hat{f}_h(x|e_y) = \sum_{\tilde{X} \in \tilde{\chi}_{r, e_y}} \frac{1}{n h^r} K\left(\frac{x - \tilde{X}_r}{h}\right)\)
 
-where \( \tilde{\chi}_{r, e_y} \) are the surrogate training vectors for class \( e_y \).
+where \( \tilde{\chi}_{r, e_y} \) are the surrogate training vectors for class \( e_y \)
 
 ## DM - Complete Workflow
 
@@ -258,7 +306,10 @@ Our result is a tibble with predictions, probabilities, and true classes. For vi
 result %>% head
 ```
 
+## Visualization
+
 **Key advantages of the new approach:**
+
 - Clean separation between model fitting and prediction
 - Follows established R modeling conventions
 - More robust error handling and validation
@@ -290,9 +341,47 @@ my_metrics = metric_set(bal_accuracy, sensitivity, specificity, ppv, npv, accura
 my_metrics(result, truth = .truth, estimate = .pred)
 ```
 
+## ROC AUC
+
+```{r}
+# Compute ROC AUC using the positive class "1"
+roc_auc(result, truth = .truth, .pred_1, event_level = "second")
+```
+
+
+## Confusion Matrix
+
+```{r DM-18b, echo=FALSE, message=FALSE, warning=FALSE}
+# Compute confusion matrix
+cm <- conf_mat(data = result, truth = .truth, estimate = .pred)
+
+autoplot(cm, type = "heatmap") + theme_minimal()
+```
+
 ## Probability Analysis
 
-We can analyze the prediction probabilities to understand model confidence:
+We analyze the distribution of predicted probabilities to understand how confident and well-calibrated the model is. For each observation, the model outputs class probabilities (columns starting with `.pred_`). The plot below shows the distribution of those probabilities.
+
+- Facets: Each facet corresponds to the true class (`.truth`). This lets you compare predicted probabilities conditioned on the ground truth.
+- Curves/colors: Each colored curve corresponds to one predicted class (e.g., `.pred_0` in blue and `.pred_1` in another color). The x-axis is the probability the model assigns to that class; the y-axis is the density of those values.
+
+## Probability Analysis
+
+- How to read the following plot:
+  - In the facet where `.truth == 1`, the density for the class “1” should be shifted toward 1 (right-hand side). In the facet where `.truth == 0`, the density for class “0” should be shifted toward 1.
+  - Good separation (little overlap between curves) indicates high confidence and better calibration. Heavy overlap suggests uncertainty or poor separability.
+  - If most mass concentrates near 0 or 1, the model is making strong (confident) predictions; mass around 0.5 indicates uncertainty.
+
+This view complements the confusion matrix and metrics: it shows not just whether predictions are correct, but how confident the model is when it is right or wrong.
+
+## Probability Analysis
+
+Reading the plot:
+
+- Ideally, the curve for the true class peaks near probability 1 within its facet, and the other class curve stays near 0.
+- If curves overlap substantially within a facet, the model is unsure on those cases; consider adjusting the bandwidth, preprocessing, or using thresholds tailored to your objective (e.g., prioritizing sensitivity vs specificity).
+
+## Probability Analysis
 
 ```{r DM-19, echo=FALSE}
 # Analyze prediction probabilities
@@ -301,15 +390,15 @@ result %>%
   tidyr::pivot_longer(cols = starts_with(".pred_"), 
                names_to = "predicted_class", 
                values_to = "probability") %>%
-  mutate(predicted_class = stringr::str_remove(predicted_class, ".pred_")) %>%
+  mutate(predicted_class = stringr::str_remove(predicted_class, "^\\.pred_")) %>%
   ggplot(aes(x = probability, fill = predicted_class)) +
   # geom_histogram(alpha = 0.7, bins = 20) +
-  geom_density(alpha = 0.7, bins = 20) +
+  geom_density(alpha = 0.7, adjust = 1) +
   facet_wrap(~.truth, labeller = label_both) +
   labs(
     title = "Prediction Probability Distribution by True Class",
     x = "Predicted Probability",
-    y = "Count",
+    y = "Density",
     fill = "Predicted Class"
   ) +
   theme_minimal()
@@ -343,11 +432,32 @@ This table was generated for **one** split, without resampling.
 result %>% select(.pred, .truth) %>% table()
 ```
 
+## Polar Coordinate Visualization
+
+We can visualize the polar coordinates for the test set to better understand decision regions.
+
+```{r DM-23, echo=FALSE, message=FALSE, warning=FALSE}
+# Use coordinates obtained above (pred_with_coords)
+coords <- pred_with_coords$coords %>%
+  dplyr::mutate(.truth = Data_test$y,
+                .pred = result$.pred) 
+
+ggplot(coords, aes(x = r, y = phi_1, color = .pred, shape = .truth)) +
+  geom_point(alpha = 0.8) +
+  labs(title = "Test Data in Polar Coordinate Space",
+       x = "r",
+       y = expression(phi[1]),
+       color = "Predicted",
+       shape = "Truth") +
+  theme_minimal()
+```
+
 # Notes
 
 ## Key Improvements
 
 **Modern Implementation Benefits:**
+
 - **Tidymodels Integration**: Follows established R modeling conventions
 - **Robust Error Handling**: Better validation and informative error messages  
 - **Consistent Interface**: Standard `fit()` and `predict()` workflow
@@ -358,3 +468,11 @@ result %>% select(.pred, .truth) %>% table()
 
 - On `DMnML.Rmd` an extended DM model is included for **bootstrap resampling**.
 - The new implementation is more suitable for integration with tidymodels workflows.
+
+# Session Info
+
+## Session Info
+
+```{r session-info, echo=FALSE}
+sessionInfo()
+```

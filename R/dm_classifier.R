@@ -7,9 +7,9 @@
 #' @import tibble
 
 # Internal function: Classify a single observation
-classify_dm <- function(x, D_tilde) {
+classify_dm <- function(x, D_tilde, bandwidth = DM_DEFAULTS$bandwidth) {
   class_probs <- seq_along(D_tilde) %>%
-    purrr::map_dbl(~ f_hat_h(D_tilde, x, clase = .x))
+    purrr::map_dbl(~ f_hat_h(D_tilde, x, clase = .x, h_window = bandwidth))
 
   if (all(class_probs == 0)) {
     warning(
@@ -45,7 +45,7 @@ classify_dm <- function(x, D_tilde) {
 #' predictions <- predict(model, iris)
 #'
 #' @export
-dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, ...) {
+dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, bandwidth = DM_DEFAULTS$bandwidth, use_polar = TRUE, ...) {
   # Validate inputs
   check_dependencies()
   if (missing(formula)) {
@@ -61,17 +61,42 @@ dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, ...) {
     dplyr::mutate(
       !!rlang::sym(objective_var) := as.factor(!!rlang::sym(objective_var)) %>%
         droplevels(),
-      temp_fit_flag = FALSE
+      !!rlang::sym(DM_DEFAULTS$test_var) := FALSE
     )
 
-  # Transform to polar coordinates (core quantum matrix workflow)
-  polar_data <- get_C_tilde_polar(
-    training_data,
-    objective_var,
-    n_breaks,
-    verbose,
-    "temp_fit_flag"
-  )
+  # Transform coordinates
+  if (isTRUE(use_polar)) {
+    # Polar coordinates (core workflow)
+    polar_data <- get_C_tilde_polar(
+      training_data,
+      objective_var,
+      n_breaks,
+      verbose,
+      DM_DEFAULTS$test_var
+    )
+    trained_data <- polar_data$train
+  } else {
+    # Cartesian coordinates (first 2 components in eigenvector basis)
+    rho_d_info <- get_rho_d(training_data, objective_var, n_breaks, verbose, DM_DEFAULTS$test_var)
+    svd_info <- compute_quantum_svd(rho_d_info$rho_d)
+    coords_train <- transform_to_coordinates(rho_d_info$train_C, svd_info$U, svd_info$rank)
+    # Keep first 2 coordinates (pad with zeros if needed) and convert to tibble
+    trained_data <- purrr::map(
+      coords_train,
+      ~ {
+        if (ncol(.x) >= 2) {
+          mat <- .x[, 1:2, drop = FALSE]
+        } else if (ncol(.x) == 1) {
+          mat <- cbind(.x[, 1, drop = FALSE], Coord_2 = 0)
+        } else {
+          mat <- matrix(0, nrow = nrow(.x), ncol = 2)
+        }
+        tib <- tibble::as_tibble(mat)
+        colnames(tib) <- c("Coord_1", "Coord_2")
+        tib
+      }
+    )
+  }
 
   # Store preprocessing information for prediction phase (tidymodels pattern)
   # We need to capture the SVD transformation and preprocessing parameters
@@ -80,13 +105,14 @@ dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, ...) {
     objective_var,
     n_breaks,
     verbose,
-    "temp_fit_flag"
+    DM_DEFAULTS$test_var,
+    bandwidth = bandwidth
   )
 
   # Build and return fitted model object
   list(
     formula = formula,
-    trained_data = polar_data$train,
+  trained_data = trained_data,
     objective_var = objective_var,
     classes = levels(training_data[[objective_var]]),
     n_classes = length(levels(training_data[[objective_var]])),
@@ -94,12 +120,14 @@ dm_fit <- function(formula, data, n_breaks = 3, verbose = 0, ...) {
     # Store preprocessing info for predictions (tidymodels pattern)
     preprocessing = preprocessing_info,
     call = match.call(),
-    training_summary = list(n_obs = nrow(data), n_features = ncol(data) - 1),
+    training_summary = list(n_obs = nrow(data), n_features = ncol(model.frame(formula, data = data)) - 1),
     model_summary = create_model_summary(
       polar_data$train,
       list(n_breaks = n_breaks, verbose = verbose, formula = formula)
     ),
-    fit_time = Sys.time()
+    fit_time = Sys.time(),
+    bandwidth = bandwidth,
+    use_polar = isTRUE(use_polar)
   ) %>%
     magrittr::set_class("dm_fit")
 }
@@ -143,9 +171,10 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), return_co
   # Transform newdata using STORED preprocessing parameters (key tidymodels principle)
   tryCatch({
     transformed_newdata <- transform_newdata_for_prediction(
-      newdata, 
-      object$preprocessing, 
-      object$objective_var
+      newdata,
+      object$preprocessing,
+      object$objective_var,
+      use_polar = object$use_polar
     )
   }, error = function(e) {
     stop(format_error(
@@ -155,38 +184,44 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), return_co
     ))
   })
 
-  # Generate predictions for each observation
-  n_obs <- nrow(newdata)
-  predictions <- vector("list", n_obs)
-  
-  # Collect all observations across classes (since data might be split artificially)
-  all_observations <- tibble::tibble()
-  for (class_idx in seq_along(transformed_newdata)) {
-    class_data <- transformed_newdata[[class_idx]]
-    if (nrow(class_data) > 0) {
-      class_data$original_row_id <- seq_len(nrow(class_data))
-      all_observations <- dplyr::bind_rows(all_observations, class_data)
-    }
+  # Use transformed coordinates (row order preserved)
+  if (nrow(transformed_newdata) == 0) {
+    return(empty_prediction_result(type, object$classes, return_coords, coord_cols = if (isTRUE(object$use_polar)) c("r","phi_1") else c("Coord_1","Coord_2")))
   }
-  
-  # Make predictions using stored trained data (tidymodels pattern)
-  if (nrow(all_observations) > 0) {
-    prediction_results <- all_observations %>%
+
+  if (isTRUE(object$use_polar)) {
+    prediction_results <- transformed_newdata %>%
       dplyr::mutate(
         pred_result = purrr::pmap(
           dplyr::select(., r, phi_1),
-          ~ classify_dm(c(.x, .y), object$trained_data)
+          ~ classify_dm(c(.x, .y), object$trained_data, bandwidth = object$bandwidth)
         ),
         .pred_class = purrr::map_dbl(pred_result, ~ .x$class),
         .pred_probs = purrr::map(pred_result, ~ .x$probs)
       )
-    
-    # Store polar coordinates for optional return
-    polar_coords <- all_observations %>%
-      dplyr::select(r, phi_1)
-    
+    coord_out <- transformed_newdata %>% dplyr::select(r, phi_1)
+    coord_cols <- c("r", "phi_1")
   } else {
-    return(empty_prediction_result(type, object$classes, return_coords))
+    prediction_results <- transformed_newdata %>%
+      dplyr::mutate(
+        pred_result = purrr::pmap(
+          dplyr::select(., Coord_1, Coord_2),
+          function(Coord_1, Coord_2) {
+            probs <- seq_along(object$trained_data) %>%
+              purrr::map_dbl(function(cls) f_hat_h_cartesian(object$trained_data, c(Coord_1, Coord_2), clase = cls, h_window = object$bandwidth))
+            if (all(probs == 0)) {
+              probs <- rep(1/length(object$trained_data), length(object$trained_data))
+            } else {
+              probs <- probs / sum(probs)
+            }
+            list(class = which.max(probs), probs = probs)
+          }
+        ),
+        .pred_class = purrr::map_dbl(pred_result, ~ .x$class),
+        .pred_probs = purrr::map(pred_result, ~ .x$probs)
+      )
+    coord_out <- transformed_newdata %>% dplyr::select(Coord_1, Coord_2)
+    coord_cols <- c("Coord_1", "Coord_2")
   }
 
   # Format predictions according to type
@@ -209,7 +244,7 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), return_co
   if (return_coords) {
     return(list(
       predictions = predictions,
-      coords = polar_coords
+      coords = coord_out
     ))
   } else {
     return(predictions)
@@ -222,7 +257,7 @@ predict.dm_fit <- function(object, newdata, type = c("class", "prob"), return_co
 #' @param return_coords Whether to include coordinates
 #' @return Empty result in correct format
 #' @keywords internal
-empty_prediction_result <- function(type, classes, return_coords = FALSE) {
+empty_prediction_result <- function(type, classes, return_coords = FALSE, coord_cols = c("r","phi_1")) {
   if (type == "class") {
     predictions <- factor(character(0), levels = classes)
   } else {
@@ -235,7 +270,11 @@ empty_prediction_result <- function(type, classes, return_coords = FALSE) {
   if (return_coords) {
     return(list(
       predictions = predictions,
-      coords = tibble::tibble(r = numeric(0), phi_1 = numeric(0))
+      coords = {
+        tib <- tibble::tibble()
+        for (nm in coord_cols) tib[[nm]] <- numeric(0)
+        tib
+      }
     ))
   } else {
     return(predictions)
@@ -303,20 +342,37 @@ summary.dm_fit <- function(object, ...) {
     cat("\nClass", i, "(", object$classes[i], "):\n")
     cat("  Observations:", nrow(class_data), "\n")
     if (nrow(class_data) > 0) {
-      cat(
-        "  r statistics   -> Mean:",
-        round(mean(class_data$r), 4),
-        "SD:",
-        round(sd(class_data$r), 4),
-        "\n"
-      )
-      cat(
-        "  phi_1 statistics -> Mean:",
-        round(mean(class_data$phi_1, na.rm = TRUE), 4),
-        "SD:",
-        round(sd(class_data$phi_1, na.rm = TRUE), 4),
-        "\n"
-      )
+      if (isTRUE(object$use_polar)) {
+        cat(
+          "  r statistics   -> Mean:",
+          round(mean(class_data$r), 4),
+          "SD:",
+          round(sd(class_data$r), 4),
+          "\n"
+        )
+        cat(
+          "  phi_1 statistics -> Mean:",
+          round(mean(class_data$phi_1, na.rm = TRUE), 4),
+          "SD:",
+          round(sd(class_data$phi_1, na.rm = TRUE), 4),
+          "\n"
+        )
+      } else {
+        cat(
+          "  Coord_1 statistics -> Mean:",
+          round(mean(class_data$Coord_1, na.rm = TRUE), 4),
+          "SD:",
+          round(sd(class_data$Coord_1, na.rm = TRUE), 4),
+          "\n"
+        )
+        cat(
+          "  Coord_2 statistics -> Mean:",
+          round(mean(class_data$Coord_2, na.rm = TRUE), 4),
+          "SD:",
+          round(sd(class_data$Coord_2, na.rm = TRUE), 4),
+          "\n"
+        )
+      }
     }
   }
 

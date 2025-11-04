@@ -7,16 +7,17 @@
 transform_to_coordinates(data_list, U, rank_rho)
 }
 \arguments{
-\item{data_list}{List of class-specific data}
+\item{data_list}{List of class-specific numeric matrices/data.frames}
 
-\item{U}{Matrix of eigenvectors}
+\item{U}{Matrix of eigenvectors (from SVD)}
 
-\item{rank_rho}{Rank of the quantum matrix}
+\item{rank_rho}{Rank of rho_d (number of coordinates to keep)}
 }
 \value{
-List of transformed data
+List of matrices with columns Coord_1..Coord_rank
 }
 \description{
-Applies coordinate transformation using SVD eigenvectors
+Projects each observation onto the SVD eigenvector basis and
+returns the first rank_rho coordinates.
 }
 \keyword{internal}

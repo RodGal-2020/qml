@@ -1,0 +1,191 @@
+---
+title: "Density Matrix Model: Hard Case"
+author: "Xopre Rodríguez Gallego"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+codification: "UTF-8"
+output:
+  ioslides_presentation:
+    widescreen: true
+    transition: slower
+    css: ../config/style/matteocourthoud_custom_ioslides.css
+    logo: ../config/style/logo.svg
+params:
+  test_prop: 0.25
+  random_seed: 42
+---
+
+```{r setup, include=FALSE}
+source(here::here("config/setup.R"))
+set.seed(params$random_seed)
+
+library(qml)
+library(dplyr)
+library(ggplot2)
+library(rsample)
+library(yardstick)
+```
+
+# Harder Binary Classification
+
+## Task overview
+
+In this streamlined example we tackle a harder binary classification task using the classic `iris` dataset. We remove the easily separable `setosa` class and keep only `versicolor` and `virginica`, which are known to be more difficult to distinguish.
+
+- Dataset: `datasets::iris`
+- Objective: classify `versicolor` vs `virginica`
+- Features: all remaining numeric variables
+
+This mirrors the structure used in the DM slides: short context + focused code chunks.
+
+## Data preparation
+
+```{r DMH-1}
+Data <- datasets::iris %>%
+  dplyr::filter(Species %in% c("versicolor", "virginica")) %>%
+  dplyr::mutate(
+    y = ifelse(Species == "versicolor", "0", "1"),
+    .keep = "unused"
+  ) %>%
+  dplyr::mutate(y = factor(y)) %>%
+  dplyr::relocate(y)
+
+# quick glance
+Data %>% dplyr::glimpse()
+```
+
+## Visual overlap (why this is hard)
+
+```{r DMH-2, echo=FALSE}
+# A quick scatter to show overlap between classes
+Data %>%
+  ggplot(aes(x = Petal.Length, y = Petal.Width, color = y)) +
+  geom_point(alpha = 0.8) +
+  scale_color_brewer(palette = "Set1", name = "Class") +
+  labs(title = "Iris: versicolor (0) vs virginica (1)",
+       subtitle = "Harder boundary than setosa vs others",
+       x = "Petal Length", y = "Petal Width") +
+  theme_minimal()
+```
+
+Reading the plot:
+
+- Points from the two classes overlap noticeably in this 2D view, which anticipates a tougher decision boundary.
+- Expect lower separation than in the easy penguins example; confidence may be more spread (see probability densities later).
+
+## Train/Test split
+
+```{r DMH-3}
+Data_split <- initial_split(Data, prop = 1 - params$test_prop, strata = "y")
+Data_train <- training(Data_split)
+Data_test  <- testing(Data_split)
+
+# class balance check
+rbind(
+  train = table(Data_train$y),
+  test  = table(Data_test$y)
+)
+```
+
+# Fit and Predict
+
+## Fit DM model (modern interface)
+
+```{r DMH-4}
+# Fit the DM classifier (polar coords by default)
+dm_model <- dm_fit(y ~ ., data = Data_train, n_breaks = 3)
+print(dm_model)
+```
+
+Notes:
+
+- Follows the modern `dm_fit()`/`predict()` convention, mirroring the DM deck.
+- Stores preprocessing artifacts to keep prediction transformations consistent.
+
+## Predictions
+
+```{r DMH-5}
+class_pred <- predict(dm_model, newdata = Data_test)
+prob_pred  <- predict(dm_model, newdata = Data_test, type = "prob")
+
+# Combine for analysis
+result <- Data_test %>%
+  dplyr::mutate(
+    .pred  = class_pred,
+    .truth = y
+  ) %>%
+  dplyr::bind_cols(prob_pred)
+
+head(result)
+```
+
+# Evaluation
+
+## Metrics
+
+```{r DMH-6}
+my_metrics <- metric_set(bal_accuracy, accuracy, sensitivity, specificity, f_meas, kap, mcc)
+my_metrics(result, truth = .truth, estimate = .pred)
+```
+
+How to read:
+
+- Balanced accuracy is robust to class imbalance; higher is better.
+- Sensitivity/specificity show trade-offs by class; kappa and MCC summarize agreement vs chance.
+
+## ROC AUC
+
+```{r DMH-7}
+roc_auc(result, truth = .truth, .pred_1, event_level = "second")
+```
+
+Interpretation: AUC close to 1 indicates good ranking of positives vs negatives; ~0.5 means no better than random.
+
+## Confusion matrix
+
+```{r DMH-8, message=FALSE}
+cm <- conf_mat(data = result, truth = .truth, estimate = .pred)
+autoplot(cm, type = "heatmap") + theme_minimal()
+```
+
+Diagonal cells are correct predictions; off-diagonal are errors. Compare magnitudes to gauge which class is harder.
+
+## Probability distributions (confidence)
+
+```{r DMH-9, echo=FALSE}
+result %>%
+  dplyr::select(starts_with(".pred_"), .truth) %>%
+  tidyr::pivot_longer(cols = starts_with(".pred_"),
+                      names_to = "predicted_class",
+                      values_to = "probability") %>%
+  dplyr::mutate(predicted_class = stringr::str_remove(predicted_class, "^\\.pred_")) %>%
+  ggplot(aes(x = probability, fill = predicted_class)) +
+  geom_density(alpha = 0.7, adjust = 1) +
+  facet_wrap(~.truth, labeller = label_both) +
+  labs(title = "Prediction Probability Distribution by True Class",
+       x = "Predicted Probability", y = "Density",
+       fill = "Predicted Class") +
+  theme_minimal()
+```
+
+Guidance (as in DM):
+
+- Within the facet of the true class, the corresponding class curve should peak near 1.
+- Overlap between curves reflects uncertainty; strong overlap suggests limited separability in this task.
+
+# Optional: Cartesian coordinates
+
+If desired, you can try the model without polar coordinates (first two eigen-basis components). Toggle `use_polar = FALSE`:
+
+```{r DMH-10, eval=FALSE}
+dm_model_xy <- dm_fit(y ~ ., data = Data_train, n_breaks = 3, use_polar = FALSE)
+class_pred_xy <- predict(dm_model_xy, newdata = Data_test)
+prob_pred_xy  <- predict(dm_model_xy, newdata = Data_test, type = "prob")
+```
+
+This variant removes polar conversion and uses the first two eigen-basis coordinates. It can help isolate where gains come from.
+
+# Session Info
+
+```{r session-info, echo=FALSE}
+sessionInfo()
+```
