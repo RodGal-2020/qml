@@ -2,7 +2,6 @@
 title: "Density Matrix vs Principal Component Analysis"
 subtitle: "A Comparative Study of Dimensionality Reduction Methods"
 author: "Xopre Rodríguez Gallego"
-date: "`r format(Sys.time(), '%m/%d/%Y')`"
 codification: "UTF-8"
 output: 
   ioslides_presentation:
@@ -20,7 +19,6 @@ params:
 
 ```{r setup, include=FALSE}
 source(here::here("config/setup.R"))
-library(tidyverse)
 
 # {
 #   devtools::document()
@@ -33,7 +31,7 @@ cat("Using qml version:", as.character(packageVersion("qml")), "\n")
 ```
 
 
-```{r setup-2, include=FALSE}
+```{r DMnPCA-1, include=FALSE}
 library(tidymodels)
 library(yardstick)
 library(patchwork)
@@ -48,41 +46,20 @@ set.seed(params$random_seed)
 
 **Objective**: Compare two fundamentally different approaches to dimensionality reduction:
 
-1. **Principal Component Analysis (PCA)** - Classical linear method
-   - Finds directions of maximum variance
-   - Linear transformations
-   - Orthogonal components
+# Goal
 
-2. **Density Matrix (DM)** - Quantum-inspired method  
-   - Creates quantum density matrices
-   - Non-linear coordinate transformations
-   - Polar coordinate representation
+Focus on how coordinates and variance change under PCA vs DM, and add projection-quality metrics. We’ll: (1) visualize the new coordinates, (2) quantify variance “before/after”, and (3) derive simple metrics to understand what each projection emphasizes.
 
-## Why Compare DM vs PCA?
-
-**Key Questions:**
-- How do quantum-inspired methods compare to classical approaches?
-- When does non-linear transformation provide advantages?
-- What are the computational and interpretability trade-offs?
-
-**Expected Insights:**
-- Performance comparison on classification tasks
-- Visualization quality in reduced dimensions
-- Robustness to data characteristics
-
-## Case Study - Palmer Penguins
-
-We'll use the Palmer penguins dataset to compare both methods on a real classification problem.
-
-```{r load-data, echo=FALSE}
+```{r}
 # Load and examine the dataset
 data <- modeldata::penguins %>%
   filter(complete.cases(.)) %>%  # Remove missing values
-  filter(species != "Chinstrap") %>%  # Binary classification
+# We'll use the Palmer penguins dataset (Adelie vs Gentoo) to compare the projections.
   mutate(
     species = droplevels(species),
     species = factor(species, levels = c("Adelie", "Gentoo"))
-  )
+  ) %>% 
+  na.omit()
 
 glimpse(data)
 ```
@@ -96,59 +73,9 @@ glimpse(data)
 
 ## Dataset Overview
 
-```{r data-overview, echo=FALSE, fig.height=5}
+```{r DMnPCA-2, echo=FALSE, fig.height=5}
 # Visualize the raw data
-p1 <- data %>%
-  ggplot(aes(x = bill_length_mm, y = bill_depth_mm, color = species)) +
-  geom_point(size = 2, alpha = 0.7) +
-  labs(title = "Original Feature Space", 
-       x = "Bill Length (mm)", y = "Bill Depth (mm)") +
-  theme_minimal()
-
-p2 <- data %>%
-  ggplot(aes(x = flipper_length_mm, y = body_mass_g, color = species)) +
-  geom_point(size = 2, alpha = 0.7) +
-  labs(title = "Original Feature Space", 
-       x = "Flipper Length (mm)", y = "Body Mass (g)") +
-  theme_minimal()
-
-p1 + p2 + plot_layout(guides = "collect")
-```
-
-## Class Distribution and Correlation
-
-```{r class-distribution, echo=FALSE, fig.height=4}
-# Class distribution
-p1 <- data %>%
-  ggplot(aes(x = species, fill = species)) +
-  geom_bar() +
-  labs(title = "Class Distribution", y = "Count") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-# Correlation heatmap for numeric variables
-numeric_data <- data %>% dplyr::select(where(is.numeric))
-cor_matrix <- cor(numeric_data)
-
-p2 <- cor_matrix %>%
-  as.data.frame() %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(-var1, names_to = "var2", values_to = "correlation") %>%
-  ggplot(aes(var1, var2, fill = correlation)) +
-  geom_tile() +
-  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
-  labs(title = "Feature Correlations") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-p1 + p2
-```
-
-## Train/Test Split
-
-```{r data-split}
-# Create stratified train/test split
-set.seed(params$random_seed)
+# Data split and “before” variance
 data_split <- initial_split(data, prop = 1 - params$test_prop, strata = species)
 train_data <- training(data_split)
 test_data <- testing(data_split)
@@ -164,6 +91,15 @@ table(train_data$species)
 ## PCA: Classical Approach
 
 **Principal Component Analysis (PCA)**:
+
+```{r DMnPCA-3 }
+# Compute variance in original numeric space (standardized), training only
+num_train <- train_data %>% dplyr::select(where(is.numeric))
+num_train_scaled <- num_train %>% mutate(across(everything(), scale))
+orig_total_var <- num_train_scaled %>% summarise(across(everything(), ~ var(.x, na.rm = TRUE))) %>%
+  rowSums(na.rm = TRUE)
+cat("Original (standardized) total variance (train, numeric only):", round(orig_total_var, 3), "\n")
+```
 - **Linear transformation** that maximizes variance
 - Finds orthogonal directions (principal components)
 - **Assumption**: Linear relationships capture the important structure
@@ -175,7 +111,7 @@ where $\mathbf{W}$ contains the eigenvectors of the covariance matrix.
 
 ## PCA Implementation
 
-```{r pca-analysis}
+```{r DMnPCA-4 }
 # Prepare data for PCA (numeric variables only)
 pca_recipe <- recipe(species ~ ., data = train_data) %>%
   step_select(all_numeric_predictors()) %>%
@@ -200,7 +136,7 @@ print(pca_variance)
 
 ## PCA Visualization: Transformed Space
 
-```{r pca-visualization, echo=FALSE, fig.height=5}
+```{r DMnPCA-5, echo=FALSE, fig.height=5}
 # Visualize PCA transformation
 p1 <- train_pca %>%
   bind_cols(species = train_data$species) %>% 
@@ -229,7 +165,7 @@ p1 + p2 + plot_layout(guides = "collect")
 
 ## PCA: Feature Loadings
 
-```{r pca-loadings, echo=FALSE}
+```{r DMnPCA-6, echo=FALSE}
 # Visualize PCA loadings
 pca_loadings %>%
   as.data.frame() %>%
@@ -262,7 +198,7 @@ Followed by SVD and coordinate transformation to polar space.
 
 ## DM Implementation
 
-```{r dm-analysis}
+```{r DMnPCA-7 }
 # Fit DM model using the modern qml interface
 dm_model <- dm_fit(species ~ ., data = train_data, n_breaks = params$n_breaks)
 
@@ -272,7 +208,7 @@ print(dm_model)
 
 ## DM Implementation
 
-```{r dm-analysis}
+```{r DMnPCA-8 }
 # Extract training data characteristics
 cat("\nTraining data characteristics:")
 for(i in seq_along(dm_model$trained_data)) {
@@ -283,7 +219,7 @@ for(i in seq_along(dm_model$trained_data)) {
 
 ## DM Visualization: Polar Coordinate Space
 
-```{r dm-visualization, echo=FALSE, fig.height=5}
+```{r DMnPCA-9, echo=FALSE, fig.height=5}
 # Create visualization data by extracting polar coordinates from trained model
 # Use the NEW feature: return_coords = TRUE to get test data coordinates
 
@@ -329,7 +265,7 @@ p1 + p2 + plot_layout(guides = "collect")
 
 ## DM: Coordinate Space Properties
 
-```{r dm-properties, echo=FALSE}
+```{r DMnPCA-10, echo=FALSE}
 # Analyze the polar coordinate distributions for both training and test
 train_coord_stats <- train_dm_viz %>%
   group_by(species) %>%
@@ -366,7 +302,7 @@ coord_stats %>%
 
 **The `predict()` function now supports `return_coords = TRUE`:**
 
-```{r coords-feature-demo, echo=TRUE}
+```{r DMnPCA-11, echo=TRUE}
 # Standard prediction
 pred_standard <- predict(dm_model, test_data, type = "class")
 
@@ -387,7 +323,7 @@ head(pred_with_coords$coords)
 
 ## Metrics Setup
 
-```{r metrics-setup}
+```{r DMnPCA-12 }
 # Define comprehensive metrics for comparison
 classification_metrics <- metric_set(
   accuracy, bal_accuracy, sens, spec, 
@@ -397,7 +333,7 @@ classification_metrics <- metric_set(
 
 ## PCA + Logistic Regression Performance
 
-```{r pca-classification}
+```{r DMnPCA-13 }
 # Fit logistic regression on PCA-transformed data
 pca_model <- logistic_reg() %>%
   set_engine("glm") %>%
@@ -408,210 +344,5 @@ pca_pred <- predict(pca_model, test_pca, type = "class")
 pca_prob <- predict(pca_model, test_pca, type = "prob")
 
 # Calculate metrics
-pca_results <- test_pca %>%
-  bind_cols(species = test_data$species) %>%
-  select(species) %>%
-  bind_cols(pca_pred, pca_prob)
-
-pca_metrics <- classification_metrics(pca_results, truth = species, estimate = .pred_class, .pred_Adelie)
-```
-
-## DM Classification Performance  
-
-```{r dm-classification}
-# Make predictions with DM model
-dm_pred <- predict(dm_model, test_data, type = "class")
-dm_prob <- predict(dm_model, test_data, type = "prob")
-
-# Calculate metrics
-dm_results <- test_data %>%
-  select(species) %>%
-  bind_cols(.pred_class = dm_pred) %>%
-  bind_cols(.pred = dm_prob)
-
-dm_metrics <- classification_metrics(dm_results, truth = species, estimate = .pred_class, .pred_Adelie)
-```
-
-## Performance Comparison Table
-
-```{r performance-comparison, echo=FALSE}
-# Combine metrics for comparison
-comparison_metrics <- bind_rows(
-  pca_metrics %>% mutate(method = "PCA + LogReg"),
-  dm_metrics %>% mutate(method = "Density Matrix")
-) %>%
-  select(method, .metric, .estimate) %>%
-  pivot_wider(names_from = .metric, values_from = .estimate) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 3)))
-
-comparison_metrics %>%
-  knitr::kable(caption = "Classification Performance Comparison")
-```
-
-## Confusion Matrices
-
-```{r confusion-matrices, echo=FALSE, fig.height=4}
-# PCA confusion matrix
-pca_cm <- pca_results %>%
-  conf_mat(truth = species, estimate = .pred_class) %>%
-  autoplot(type = "heatmap") +
-  labs(title = "PCA + Logistic Regression") +
-  theme_minimal()
-
-# DM confusion matrix  
-dm_cm <- dm_results %>%
-  conf_mat(truth = species, estimate = .pred_class) %>%
-  autoplot(type = "heatmap") +
-  labs(title = "Density Matrix") +
-  theme_minimal()
-
-pca_cm + dm_cm
-```
-
-# Detailed Comparison
-
-## Prediction Probability Distributions
-
-```{r probability-distributions, echo=FALSE, fig.height=4}
-# Compare prediction probability distributions
-pca_prob_plot <- pca_results %>%
-  select(species, .pred_Adelie, .pred_Gentoo) %>%
-  pivot_longer(starts_with(".pred_"), names_to = "predicted_class", values_to = "probability") %>%
-  mutate(predicted_class = str_remove(predicted_class, ".pred_")) %>%
-  ggplot(aes(probability, fill = predicted_class)) +
-  geom_histogram(alpha = 0.7, bins = 15) +
-  facet_wrap(~species) +
-  labs(title = "PCA: Prediction Probabilities", x = "Probability", y = "Count") +
-  theme_minimal()
-
-dm_prob_plot <- dm_results %>%
-  select(species, .pred_Adelie, .pred_Gentoo) %>%
-  pivot_longer(starts_with(".pred_"), names_to = "predicted_class", values_to = "probability") %>%
-  mutate(predicted_class = str_remove(predicted_class, ".pred_")) %>%
-  ggplot(aes(probability, fill = predicted_class)) +
-  geom_histogram(alpha = 0.7, bins = 15) +
-  facet_wrap(~species) +
-  labs(title = "DM: Prediction Probabilities", x = "Probability", y = "Count") +
-  theme_minimal()
-
-pca_prob_plot / dm_prob_plot
-```
-
-## ROC Curves Comparison
-
-```{r roc-comparison, echo=FALSE, fig.height=4}
-# ROC curves
-pca_roc <- pca_results %>%
-  roc_curve(truth = species, .pred_Adelie) %>%
-  mutate(method = "PCA")
-
-dm_roc <- dm_results %>%
-  roc_curve(truth = species, .pred_Adelie) %>%
-  mutate(method = "DM")
-
-bind_rows(pca_roc, dm_roc) %>%
-  ggplot(aes(1 - specificity, sensitivity, color = method)) +
-  geom_line(size = 1.2) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", alpha = 0.5) +
-  labs(
-    title = "ROC Curve Comparison",
-    x = "1 - Specificity",
-    y = "Sensitivity"
-  ) +
-  theme_minimal() +
-  coord_equal()
-```
-
-## Computational Characteristics
-
-```{r computational-comparison, echo=FALSE}
-# Compare computational aspects
-comp_comparison <- tribble(
-  ~Aspect, ~PCA, ~DM,
-  "Transformation Type", "Linear", "Non-linear (Quantum-inspired)",
-  "Output Space", "Principal Components", "Polar Coordinates (r, φ)",
-  "Interpretability", "High (variance explained)", "Moderate (quantum matrix)",
-  "Scalability", "Excellent", "Good",
-  "Parameter Tuning", "# Components", "# Breaks, bandwidth",
-  "Preprocessing", "Normalization required", "Handles mixed data types",
-  "Assumptions", "Linear relationships", "Minimal assumptions"
-)
-
-comp_comparison %>%
-  knitr::kable(caption = "Methodological Comparison")
-```
-
-## Summary: When to Use Each Method
-
-**PCA is preferred when:**
-- **Linear relationships** dominate the data structure
-- **Interpretability** is crucial (variance explained)
-- **Large datasets** require fast computation
-- **Feature reduction** is the primary goal
-
-**Density Matrix is preferred when:**
-- **Non-linear patterns** are suspected
-- **Complex data relationships** need to be captured
-- **Mixed data types** (continuous + categorical)
-- **Novel quantum-inspired approaches** are of interest
-
-# Conclusions
-
-## Key Findings
-
-```{r key-findings, echo=FALSE}
-# Extract key performance differences
-accuracy_diff <- comparison_metrics$accuracy[comparison_metrics$method == "Density Matrix"] - 
-                 comparison_metrics$accuracy[comparison_metrics$method == "PCA + LogReg"]
-
-f1_diff <- comparison_metrics$f_meas[comparison_metrics$method == "Density Matrix"] - 
-           comparison_metrics$f_meas[comparison_metrics$method == "PCA + LogReg"]
-
-auc_diff <- comparison_metrics$roc_auc[comparison_metrics$method == "Density Matrix"] - 
-            comparison_metrics$roc_auc[comparison_metrics$method == "PCA + LogReg"]
-```
-
-**Performance Summary:**
-- **Accuracy difference**: `r round(accuracy_diff, 3)` (DM vs PCA)
-- **F1-score difference**: `r round(f1_diff, 3)` (DM vs PCA)  
-- **AUC difference**: `r round(auc_diff, 3)` (DM vs PCA)
-
-**Method Characteristics:**
-- **PCA**: Fast, interpretable, linear assumptions
-- **DM**: Novel approach, handles non-linearity, quantum-inspired
-
-## Future Directions
-
-**Research Opportunities:**
-1. **Scalability studies** with larger datasets
-2. **Multi-class extension** for DM method
-3. **Hybrid approaches** combining PCA and quantum methods
-4. **Theoretical analysis** of quantum-classical performance gaps
-
-**Implementation Improvements:**
-1. **Full test data visualization** in polar coordinates
-2. **Cross-validation** comparison framework  
-3. **Feature importance** analysis for DM
-4. **Computational efficiency** optimization
-
-## References and Acknowledgments
-
-**Quantum Machine Learning Package:**
-- Modern `dm_fit()` and `predict()` interface
-- Follows tidymodels conventions
-- Available at: https://github.com/RodGal-2020/qml
-
-**Dataset:**
-- Palmer Penguins dataset via `modeldata` package
-- Binary classification: Adelie vs Gentoo penguins
-
-**Tools:**
-- R tidymodels ecosystem
-- ggplot2 for visualizations  
-- Custom quantum matrix implementation
-
 # Session Info
 
-```{r session-info, echo=FALSE}
-sessionInfo()
-```
